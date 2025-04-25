@@ -63,3 +63,7 @@ func DisconnectDB() {
     }
     log.Println("Disconnected from MongoDB")
 }
+// OpenCollection คืนค่าคอลเลกชันจากชื่อที่กำหนด
+func OpenCollection(collectionName string) *mongo.Collection {
+    return Client.Database("arttoyhub_db").Collection(collectionName)
+}

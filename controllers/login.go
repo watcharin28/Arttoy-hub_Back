@@ -10,6 +10,7 @@ import (
     "go.mongodb.org/mongo-driver/bson"
     "golang.org/x/crypto/bcrypt"
     "github.com/golang-jwt/jwt/v4"
+    "fmt"
 )
 
 var jwtSecret = []byte(os.Getenv("JWT_SECRET"))
@@ -62,37 +63,10 @@ func Login(c *gin.Context) {
         c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
         return
     }
-
-    c.JSON(http.StatusOK, gin.H{
-        "message": "Login successful",
-        "token":   token,
-    })
+    // ตั้งค่า cookie
+    c.SetCookie("token", token, 3600*24, "/", "", false, true)
+    // c.Writer.Header().Set("Set-Cookie", fmt.Sprintf("token=%s; SameSite=Lax; Path=/; HttpOnly", token))
+    c.Writer.Header().Set("Set-Cookie", fmt.Sprintf("token=%s; SameSite=Lax; Path=/;", token)) // ลบ HttpOnly ออก
+    c.JSON(http.StatusOK, gin.H{"message": "Login successful"})
 }
 
-
-// Middleware ตรวจสอบ JWT
-func AuthMiddleware() gin.HandlerFunc {
-    return func(c *gin.Context) {
-        tokenString := c.GetHeader("Authorization")
-        if tokenString == "" {
-            c.JSON(http.StatusUnauthorized, gin.H{"error": "Token required"})
-            c.Abort()
-            return
-        }
-
-        token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-            if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-                return nil, jwt.ErrSignatureInvalid
-            }
-            return jwtSecret, nil
-        })
-
-        if err != nil || !token.Valid {
-            c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
-            c.Abort()
-            return
-        }
-
-        c.Next()
-    }
-}

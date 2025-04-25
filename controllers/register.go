@@ -28,7 +28,7 @@ func Register(c *gin.Context) {
         Gmail           string `json:"gmail" binding:"required,email"`
         Phonenumber     string `json:"phonenumber" binding:"required"`
         Password        string `json:"password" binding:"required"`
-        ConfirmPassword string `json:"confirmPassword" binding  binding:"required"`
+        ConfirmPassword string `json:"confirmPassword" binding:"required"`
     }
 
     var input RegisterInput
@@ -100,6 +100,7 @@ func Register(c *gin.Context) {
         Gmail:       input.Gmail,
         Phonenumber: input.Phonenumber,
         Password:    hashedPassword,
+        LikedItems:   []string{},
     }
 
     // บันทึกผู้ใช้

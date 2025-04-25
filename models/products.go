@@ -16,7 +16,7 @@ type Product struct {
     Price       float64            `json:"price" bson:"price"`
     Stock       int                `json:"stock" bson:"stock"`
     CategoryID  primitive.ObjectID `json:"category_id" bson:"category_id"`
-    ImageURL    string             `json:"image_url" bson:"image_url"`
+    ImageURL    string             `json:"product_image" bson:"product_image"`
     Rating      float64            `json:"rating" bson:"rating"`
 }
 
