@@ -1,42 +1,48 @@
 package routes
 
 import (
-    "arttoy-hub/controllers"
-    "github.com/gin-gonic/gin"
-    "arttoy-hub/middleware"
+	"arttoy-hub/controllers"
+	"arttoy-hub/middleware"
+	"github.com/gin-gonic/gin"
 )
 
 func SetupAuthRoutes(r *gin.Engine) {
-        // Public user routes
-        r.POST("/Login", controllers.Login) // Login route
-        r.POST("/Register", controllers.Register) // Register route
-    
-        // ใช้ AuthMiddleware กับ routes ที่ต้องการให้ login ก่อน
-        userRoutes := r.Group("/api/user")
-        userRoutes.Use(middlewares.AuthMiddleware()) // ต้อง login ก่อน
-        {
-            userRoutes.PUT("/Profile", controllers.UpdateProfile)
-            userRoutes.GET("/Profile", controllers.GetProfile)
-            userRoutes.GET("/favorites", controllers.GetUserFavorites)
-            userRoutes.DELETE("/favorites/:product_id", controllers.DeleteUserFavorite)
-            userRoutes.POST("/favorites/:product_id", controllers.LikeProduct)
-            userRoutes.GET("/favorites/status/:product_id", controllers.GetFavoriteStatus)
-            
+	// Public user routes
+	r.POST("/Login", controllers.Login)       // Login route
+	r.POST("/Register", controllers.Register) // Register route
+	r.GET("/search", controllers.SearchProducts)
+	// ใช้ AuthMiddleware กับ routes ที่ต้องการให้ login ก่อน
+	userRoutes := r.Group("/api/user")
+	userRoutes.Use(middlewares.AuthMiddleware()) // ต้อง login ก่อน
+	{
+		userRoutes.POST("/logout", controllers.Logout)
+		userRoutes.PUT("/Profile", controllers.UpdateProfile)
+		userRoutes.GET("/Profile", controllers.GetProfile)
+		userRoutes.GET("/favorites", controllers.GetUserFavorites)
+		userRoutes.DELETE("/favorites/:product_id", controllers.DeleteUserFavorite)
+		userRoutes.POST("/favorites/:product_id", controllers.LikeProduct)
+		userRoutes.GET("/favorites/status/:product_id", controllers.GetFavoriteStatus)
+		userRoutes.PUT("/change-password", controllers.ChangePassword)
+		userRoutes.PUT("/shipping-address", controllers.UpdateShippingAddress) // เพิ่มที่อยู่ใหม่
+		userRoutes.GET("/addresses", controllers.GetUserAddresses)             // ดึงที่อยู่ทั้งหมด
+		userRoutes.DELETE("/addresses/:address_id", controllers.DeleteAddress)
+		userRoutes.PUT("/addresses/:address_id", controllers.UpdateAddress)
+		// userRoutes.PUT("/update-address-field", controllers.UpdateUserWithAddressField) //เอาไว้อัพฟิลuser ที่ไม่มี
+		userRoutes.POST("/products", controllers.AddProduct)
+        userRoutes.POST("/become-seller",controllers.BecomeSeller)
 
-        }       
+	}
 }
 
 func SetupProductRoutes(r *gin.Engine) {
-    // กลุ่มเส้นทางสำหรับ products
-    products := r.Group("/api/products")
-    {
-        products.GET("", controllers.GetAllProducts)
-        products.POST("", controllers.AddProduct)
-        products.GET("/:id", controllers.GetProductByID)
-        products.PUT("/:id", controllers.UpdateProduct)
-        products.DELETE("/:id", controllers.DeleteProduct)
-       
-    }
-    
+	// กลุ่มเส้นทางสำหรับ products
+	products := r.Group("/api/products")
+	{
+		products.GET("", controllers.GetAllProducts)
+		products.POST("", controllers.AddProduct)
+		products.GET("/:id", controllers.GetProductByID)
+		products.PUT("/:id", controllers.UpdateProduct)
+		products.DELETE("/:id", controllers.DeleteProduct)
+	}
 
 }
