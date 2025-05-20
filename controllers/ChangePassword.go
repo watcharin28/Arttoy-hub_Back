@@ -22,6 +22,10 @@ func ChangePassword(c *gin.Context) {
 	
 
     var input PasswordInput
+    if err := c.ShouldBindJSON(&input); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+        return
+    }
 	if input.NewPassword != input.ConfirmPassword {
         c.JSON(http.StatusBadRequest, gin.H{"error": "New password and confirmation do not match"})
         return
