@@ -16,14 +16,15 @@ type OrderItem struct {
 }
 
 type Order struct {
-	ID         primitive.ObjectID `json:"id" bson:"_id,omitempty"`
-	UserID     primitive.ObjectID `json:"user_id" bson:"user_id"`
-	Items      []OrderItem        `json:"items" bson:"items"`
-	Total      float64            `json:"total" bson:"total"`
-	ChargeID   string             `json:"charge_id,omitempty" bson:"charge_id,omitempty"`
-	TransferID string             `json:"transfer_id,omitempty" bson:"transfer_id,omitempty"`
-	Status     string             `json:"status" bson:"status"`
-	CreatedAt  time.Time          `json:"created_at" bson:"created_at"`
+	ID             primitive.ObjectID `json:"id" bson:"_id,omitempty"`
+	UserID         primitive.ObjectID `json:"user_id" bson:"user_id"`
+	Items          []OrderItem        `json:"items" bson:"items"`
+	Total          float64            `json:"total" bson:"total"`
+	ChargeID       string             `json:"charge_id,omitempty" bson:"charge_id,omitempty"`
+	TransferID     string             `json:"transfer_id,omitempty" bson:"transfer_id,omitempty"`
+	Status         string             `json:"status" bson:"status"`
+	TrackingNumber string             `json:"tracking_number,omitempty" bson:"tracking_number,omitempty"`
+	CreatedAt      time.Time          `json:"created_at" bson:"created_at"`
 }
 
 func CreateOrder(order Order) (Order, error) {

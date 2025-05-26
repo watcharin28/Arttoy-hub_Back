@@ -22,4 +22,5 @@ func SetupRoutes(r *gin.Engine) {
 	SetupOrderRoutes(r)
 	PaymentRoutes(r)
 	CategoryRoutes(r)
+	SetupReviewRoutes(r)
 }

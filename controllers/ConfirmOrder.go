@@ -41,17 +41,25 @@ func ConfirmOrderDelivery(c *gin.Context) {
 		return
 	}
 
-	// ตรวจว่า order เป็นของผู้ซื้อที่ login อยู่
+	//  ตรวจว่าเป็น order ของผู้ซื้อที่ login อยู่
 	if order.UserID != userObjID {
 		c.JSON(http.StatusForbidden, gin.H{"error": "You are not allowed to confirm this order"})
 		return
 	}
 
-	if order.Status != "paid" {
+	//  ตรวจว่าคำสั่งซื้อต้องอยู่ในสถานะ "paid"
+	if order.Status != "shipped" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Order not in paid state"})
 		return
 	}
 
+	//  ตรวจว่าผู้ขายได้กรอกเลขพัสดุหรือยัง
+	if order.TrackingNumber == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ยังไม่สามารถยืนยันได้ เพราะผู้ขายยังไม่ได้กรอกเลขพัสดุ"})
+		return
+	}
+
+	//  ดึงสินค้าแรก (สินค้ามือสองมีชิ้นเดียว)
 	if len(order.Items) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Order has no items"})
 		return
@@ -64,6 +72,7 @@ func ConfirmOrderDelivery(c *gin.Context) {
 		return
 	}
 
+	// ดึงข้อมูลผู้ขายจาก product
 	var seller models.User
 	err = db.OpenCollection("users").FindOne(ctx, bson.M{"_id": product.SellerID}).Decode(&seller)
 	if err != nil || seller.SellerInfo == nil || seller.SellerInfo.RecipientID == "" {
@@ -71,6 +80,7 @@ func ConfirmOrderDelivery(c *gin.Context) {
 		return
 	}
 
+	// สร้าง Omise client
 	client, err := omise.NewClient(
 		os.Getenv("OMISE_PUBLIC_KEY"),
 		os.Getenv("OMISE_SECRET_KEY"),
@@ -80,9 +90,10 @@ func ConfirmOrderDelivery(c *gin.Context) {
 		return
 	}
 
+	// สร้าง transfer ไปยัง recipient ของผู้ขาย
 	transfer := &omise.Transfer{}
 	err = client.Do(transfer, &operations.CreateTransfer{
-		Amount:    int64(order.Total * 100),
+		Amount:    int64(order.Total * 100), // แปลงเป็นสตางค์
 		Recipient: seller.SellerInfo.RecipientID,
 	})
 	if err != nil {
@@ -90,6 +101,7 @@ func ConfirmOrderDelivery(c *gin.Context) {
 		return
 	}
 
+	// อัปเดตสถานะ order เป็น completed และเก็บ transfer_id
 	_, err = db.OpenCollection("orders").UpdateByID(ctx, objID, bson.M{
 		"$set": bson.M{
 			"status":      "completed",
@@ -106,6 +118,7 @@ func ConfirmOrderDelivery(c *gin.Context) {
 		"transfer_id": transfer.ID,
 	})
 }
+
 
 func UpdateTrackingNumber(c *gin.Context) {
 	orderID := c.Param("id")

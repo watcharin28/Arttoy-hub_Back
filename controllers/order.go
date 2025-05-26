@@ -1,4 +1,3 @@
-// controllers/order_controller.go (แก้ไขสำหรับสินค้ามือสอง)
 package controllers
 
 import (
@@ -16,7 +15,7 @@ import (
     "github.com/omise/omise-go/operations"
 )
 
-// ✅ สร้างคำสั่งซื้อจากตะกร้า
+// สร้างคำสั่งซื้อจากตะกร้า
 func CreateOrder(c *gin.Context) {
 	userID := c.GetString("user_id")
 	if userID == "" {

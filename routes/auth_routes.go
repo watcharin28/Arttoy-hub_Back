@@ -35,7 +35,7 @@ func SetupAuthRoutes(r *gin.Engine) {
 }
 
 func SetupProductRoutes(r *gin.Engine) {
-	// กลุ่มเส้นทางสำหรับ products
+	
 	products := r.Group("/api/products")
 	{
 		products.GET("", controllers.GetAllProducts)
@@ -78,5 +78,12 @@ func CategoryRoutes(r *gin.Engine) {
     {
         category.GET("/", controllers.GetAllCategories)
         category.POST("/", controllers.AddCategory)
+    }
+}
+func SetupReviewRoutes(r *gin.Engine) {
+    review := r.Group("/api/reviews",)
+    {
+        review.POST("/", middlewares.AuthMiddleware(), controllers.CreateReview)
+        review.GET("/seller/:sellerId", controllers.GetReviewsBySeller)
     }
 }
