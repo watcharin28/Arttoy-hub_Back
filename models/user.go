@@ -23,4 +23,5 @@ type SellerInfo struct {
 	CitizenID         string `json:"citizen_id" bson:"citizen_id"`
 	IDCardImageURL    string `json:"id_card_image_url" bson:"id_card_image_url"`
 	IsVerified        bool   `json:"is_verified" bson:"is_verified"`
+	RecipientID       string `json:"recipient_id,omitempty" bson:"recipient_id,omitempty"`
 }

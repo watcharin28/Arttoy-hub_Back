@@ -4,6 +4,7 @@ import (
 	"context"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo/options"
 	"net/http"
 	"time"
 
@@ -22,14 +23,14 @@ func UpdateShippingAddress(c *gin.Context) {
 	}
 
 	var input struct {
-		Name        string `json:"name" binding:"required"`        // ชื่อ
-		Phone       string `json:"phone" binding:"required"`       // หมายเลขโทรศัพท์
-		Address     string `json:"address" binding:"required"`     // ที่อยู่
-		Subdistrict string `json:"subdistrict" binding:"required"` // แขวง
-		District    string `json:"district" binding:"required"`    // เขต
-		Province    string `json:"province" binding:"required"`    // จังหวัด
-		Zipcode     string `json:"zipcode" binding:"required"`     // รหัสไปรษณีย์
-		IsDefault   bool   `json:"isDefault"`                      // เป็นที่อยู่หลัก (optional)
+		Name        string `json:"name" binding:"required"`
+		Phone       string `json:"phone" binding:"required"`
+		Address     string `json:"address" binding:"required"`
+		Subdistrict string `json:"subdistrict" binding:"required"`
+		District    string `json:"district" binding:"required"`
+		Province    string `json:"province" binding:"required"`
+		Zipcode     string `json:"zipcode" binding:"required"`
+		IsDefault   bool   `json:"isDefault"`
 	}
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input"})
@@ -47,12 +48,23 @@ func UpdateShippingAddress(c *gin.Context) {
 
 	addressesCollection := db.OpenCollection("users")
 
+	// แปลง addresses:null → [] ถ้ายังไม่มี
+	_, _ = addressesCollection.UpdateOne(ctx, bson.M{
+		"_id":      objID,
+		"addresses": bson.M{"$type": "null"},
+	}, bson.M{
+		"$set": bson.M{"addresses": []interface{}{}},
+	})
+
+	// ถ้าเป็น default → set isDefault: false ให้ทุก address อื่น
 	if input.IsDefault {
-		// 1. Set isDefault ของที่อยู่ทั้งหมดเป็น false
-		_, err = addressesCollection.UpdateOne(
+		_, err = addressesCollection.UpdateMany(
 			ctx,
 			bson.M{"_id": objID},
-			bson.M{"$set": bson.M{"addresses.$[].isDefault": false}},
+			bson.M{"$set": bson.M{"addresses.$[elem].isDefault": false}},
+			options.Update().SetArrayFilters(options.ArrayFilters{
+				Filters: []interface{}{bson.M{"elem.isDefault": true}},
+			}),
 		)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update existing addresses"})
@@ -60,17 +72,17 @@ func UpdateShippingAddress(c *gin.Context) {
 		}
 	}
 
-	// 2. เพิ่มที่อยู่ใหม่
+	// ✅ 3. เพิ่ม address ใหม่
 	newAddress := models.Address{
-		ID:          primitive.NewObjectID(), // สร้าง ID ใหม่
-		Name:        input.Name,              // ชื่อ
-		Phone:       input.Phone,             // หมายเลขโทรศัพท์
-		Address:     input.Address,           // ที่อยู่
-		Subdistrict: input.Subdistrict,       // แขวง
-		District:    input.District,          // เขต
-		Province:    input.Province,          // จังหวัด
-		Zipcode:     input.Zipcode,           // รหัสไปรษณีย์
-		IsDefault:   input.IsDefault,         // เป็นที่อยู่หลัก (optional)
+		ID:          primitive.NewObjectID(),
+		Name:        input.Name,
+		Phone:       input.Phone,
+		Address:     input.Address,
+		Subdistrict: input.Subdistrict,
+		District:    input.District,
+		Province:    input.Province,
+		Zipcode:     input.Zipcode,
+		IsDefault:   input.IsDefault,
 	}
 
 	_, err = addressesCollection.UpdateOne(
@@ -83,8 +95,9 @@ func UpdateShippingAddress(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Shipping address added successfully"})
+	c.JSON(http.StatusOK, gin.H{"message": "Shipping address added successfully", "address": newAddress})
 }
+
 
 // UpdateShippingAddress อัปเดตที่อยู่ของผู้ใช้
 // GetUserAddresses ดึงที่อยู่ทั้งหมดของผู้ใช้

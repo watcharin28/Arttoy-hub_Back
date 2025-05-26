@@ -2,25 +2,26 @@ package controllers
 
 import (
     "net/http"
-    
+    "strings"
 
     "github.com/gin-gonic/gin"
     "arttoy-hub/services" // <- เรียกใช้ Service
 )
 
 func SearchProducts(c *gin.Context) {
-    keyword := c.Query("keyword")
-    
-    if keyword == "" {
-        c.JSON(http.StatusBadRequest, gin.H{"error": "Keyword is required"})
-        return
-    }
+	keyword := c.Query("keyword")
+	categoryParam := c.Query("category")
 
-    products, err := services.SearchProductsService(keyword)
-    if err != nil {
-        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-        return
-    }
+	var categoryList []string
+	if categoryParam != "" {
+		categoryList = strings.Split(categoryParam, ",") // แยกหมวดหมู่จาก comma
+	}
 
-    c.JSON(http.StatusOK, products)
+	products, err := services.SearchProductsService(keyword, categoryList)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, products)
 }

@@ -1,88 +1,108 @@
 package controllers
 
 import (
+	"arttoy-hub/database"
 	"arttoy-hub/models"
-
+	"context"
 	"github.com/gin-gonic/gin"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"net/http"
-	// "log"
-	"fmt"
-	// "io"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 	"strconv"
+	"time"
+	// "fmt"
 )
 
 func AddProduct(c *gin.Context) {
 	var product models.Product
-	// รับข้อมูลทั่วไปจาก form-data
-	product.Name = c.DefaultPostForm("name", "")
-    product.Description = c.DefaultPostForm("description", "")
-    price := c.DefaultPostForm("price", "")
-    stock := c.DefaultPostForm("stock", "")
-    categoryID := c.DefaultPostForm("category_id", "")
-    rating := c.DefaultPostForm("rating", "")
-	if err := c.ShouldBind(&product); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid form data"})
+
+	product.Name = c.PostForm("name")
+	product.Description = c.PostForm("description")
+	product.Category = c.PostForm("category")
+	product.Model = c.PostForm("model")
+	product.Color = c.PostForm("color")
+	product.Size = c.PostForm("size")
+	price := c.PostForm("price")
+
+	userID := c.GetString("user_id")
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
+
+	sellerObjID, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
 	priceValue, err := strconv.ParseFloat(price, 64)
-    if err != nil {
-        c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid price"})
-        return
-    }
-
-    stockValue, err := strconv.Atoi(stock)
-    if err != nil {
-        c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid stock"})
-        return
-    }
-
-    ratingValue, err := strconv.ParseFloat(rating, 64)
-    if err != nil {
-        c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid rating"})
-        return
-    }
-
-    // แปลง category_id ให้เป็น ObjectID
-    objID, err := primitive.ObjectIDFromHex(categoryID)
-    if err != nil {
-        c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid category ID"})
-        return
-    }
-
-    // ตั้งค่าในโครงสร้างสินค้า
-    product.Price = priceValue
-    product.Stock = stockValue
-    product.CategoryID = objID
-    product.Rating = ratingValue
-
-
-	// รับไฟล์รูปภาพจาก request
-	file, _, err := c.Request.FormFile("product_image")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Product image not found"})
-		return
-	}
-	fmt.Println("Received product:", product)
-	// อัพโหลดรูปภาพไปยัง GCS
-	imageURL, err := UploadImageToGCS(file, "image/jpeg", "product_images")
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upload image to GCS"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid price"})
 		return
 	}
 
-	// เก็บ URL ของรูปภาพในข้อมูลสินค้า
-	product.ImageURL = imageURL
+	product.Rating = 0.0
 
-	// เพิ่มสินค้าลงในฐานข้อมูล
+	// ตรวจสอบผู้ขาย
+	var user models.User
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	err = db.OpenCollection("users").FindOne(ctx, bson.M{"_id": sellerObjID}).Decode(&user)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Seller not found"})
+		return
+	}
+
+	if !user.IsSeller || user.SellerInfo == nil || !user.SellerInfo.IsVerified {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Only verified sellers can post products"})
+		return
+	}
+
+	product.Price = priceValue
+	product.SellerID = sellerObjID
+	product.IsSold = false
+
+	// รูปภาพ
+	form, err := c.MultipartForm()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid multipart form"})
+		return
+	}
+
+	files := form.File["product_image"]
+	if len(files) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No image files uploaded"})
+		return
+	}
+
+	for _, file := range files {
+		f, err := file.Open()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to open image"})
+			return
+		}
+		defer f.Close()
+
+		imageURL, err := UploadImageToGCS(f, file.Header.Get("Content-Type"), "product_images")
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upload image to GCS"})
+			return
+		}
+
+		product.ImageURLs = append(product.ImageURLs, imageURL)
+	}
+
+	product.CreatedAt = time.Now()
+
 	newProduct, err := models.AddProduct(product)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	// ตอบกลับเป็นสินค้าใหม่ที่ถูกเพิ่มเข้าไป
 	c.JSON(http.StatusCreated, newProduct)
 }
 
@@ -92,7 +112,6 @@ func GetAllProducts(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-
 	c.JSON(http.StatusOK, products)
 }
 
@@ -107,7 +126,6 @@ func GetProductByID(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-
 	c.JSON(http.StatusOK, product)
 }
 
@@ -118,7 +136,6 @@ func UpdateProduct(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 		return
 	}
-
 	product, err := models.UpdateProduct(id, updatedProduct)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
@@ -128,7 +145,6 @@ func UpdateProduct(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-
 	c.JSON(http.StatusOK, product)
 }
 
@@ -143,6 +159,5 @@ func DeleteProduct(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-
 	c.JSON(http.StatusOK, gin.H{"message": "Product deleted"})
 }

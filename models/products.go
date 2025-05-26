@@ -14,18 +14,25 @@ type Product struct {
     Name        string             `json:"name" bson:"name"`
     Description string             `json:"description" bson:"description"`
     Price       float64            `json:"price" bson:"price"`
-    Stock       int                `json:"stock" bson:"stock"`
-    CategoryID  primitive.ObjectID `json:"category_id" bson:"category_id"`
-    ImageURL    string             `json:"product_image" bson:"product_image"`
+    Category    string             `json:"category" bson:"category"`               // จากชื่อ
+    Model       string             `json:"model" bson:"model"`
+    Color       string             `json:"color" bson:"color"`
+    Size        string             `json:"size" bson:"size"`
+    ImageURLs   []string           `json:"product_image" bson:"product_image"`
     Rating      float64            `json:"rating" bson:"rating"`
+    SellerID    primitive.ObjectID `json:"seller_id" bson:"seller_id"`
+    IsSold      bool               `json:"is_sold" bson:"is_sold"`
+    CreatedAt   time.Time          `json:"created_at" bson:"created_at"`
 }
 
-// เพิ่มสินค้า
+// เพิ่มสินค้าใหม่
 func AddProduct(product Product) (Product, error) {
     ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
     defer cancel()
 
     product.ID = primitive.NewObjectID()
+    product.CreatedAt = time.Now()
+
     _, err := db.ProductCollection.InsertOne(ctx, product)
     if err != nil {
         return Product{}, err
@@ -39,7 +46,7 @@ func GetAllProducts() ([]Product, error) {
     defer cancel()
 
     var products []Product
-    cursor, err :=db.ProductCollection.Find(ctx, bson.M{})
+    cursor, err := db.ProductCollection.Find(ctx, bson.M{})
     if err != nil {
         return nil, err
     }
@@ -50,6 +57,8 @@ func GetAllProducts() ([]Product, error) {
     }
     return products, nil
 }
+
+// ดึงสินค้าโดย ID
 func GetProductByID(id string) (Product, error) {
     ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
     defer cancel()
@@ -66,6 +75,8 @@ func GetProductByID(id string) (Product, error) {
     }
     return product, nil
 }
+
+// อัปเดตสินค้า
 func UpdateProduct(id string, updatedProduct Product) (Product, error) {
     ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
     defer cancel()
@@ -77,13 +88,17 @@ func UpdateProduct(id string, updatedProduct Product) (Product, error) {
 
     update := bson.M{
         "$set": bson.M{
-            "name":        updatedProduct.Name,
-            "description": updatedProduct.Description,
-            "price":       updatedProduct.Price,
-            "stock":       updatedProduct.Stock,
-            "category_id": updatedProduct.CategoryID,
-            "image_url":   updatedProduct.ImageURL,
-            "rating":      updatedProduct.Rating,
+            "name":         updatedProduct.Name,
+            "description":  updatedProduct.Description,
+            "price":        updatedProduct.Price,
+            "category":     updatedProduct.Category,
+            "model":        updatedProduct.Model,
+            "color":        updatedProduct.Color,
+            "size":         updatedProduct.Size,
+            "product_image": updatedProduct.ImageURLs,
+            "rating":       updatedProduct.Rating,
+            "seller_id":    updatedProduct.SellerID,
+            "is_sold":      updatedProduct.IsSold,
         },
     }
 
@@ -95,6 +110,8 @@ func UpdateProduct(id string, updatedProduct Product) (Product, error) {
     updatedProduct.ID = objID
     return updatedProduct, nil
 }
+
+// ลบสินค้า
 func DeleteProduct(id string) error {
     ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
     defer cancel()

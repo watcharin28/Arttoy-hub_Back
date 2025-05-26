@@ -16,6 +16,10 @@ func SetupRoutes(r *gin.Engine) {
     }))
 
 	// รวม routes 
-	SetupAuthRoutes(r)   // 
+	SetupAuthRoutes(r)   
 	SetupProductRoutes(r)
+	SetupCartRoutes(r)
+	SetupOrderRoutes(r)
+	PaymentRoutes(r)
+	CategoryRoutes(r)
 }

@@ -9,29 +9,37 @@ import (
     "go.mongodb.org/mongo-driver/bson"
 )
 
-func SearchProductsService(keyword string) ([]models.Product, error) {
-    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-    defer cancel()
+func SearchProductsService(keyword string, categoryList []string) ([]models.Product, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
-    productCollection := db.OpenCollection("products")
+	filter := bson.M{}
 
-    filter := bson.M{
-        "$or": []bson.M{
-            {"name": bson.M{"$regex": keyword, "$options": "i"}},
-            {"description": bson.M{"$regex": keyword, "$options": "i"}},
-        },
-    }
+	if keyword != "" {
+		filter["$or"] = []bson.M{
+			{"name": bson.M{"$regex": keyword, "$options": "i"}},
+			{"description": bson.M{"$regex": keyword, "$options": "i"}},
+			{"category": bson.M{"$regex": keyword, "$options": "i"}},
+			{"model": bson.M{"$regex": keyword, "$options": "i"}},
+		}
+	}
 
-    cursor, err := productCollection.Find(ctx, filter)
-    if err != nil {
-        return nil, err
-    }
-    defer cursor.Close(ctx)
+	if len(categoryList) > 0 {
+		filter["category"] = bson.M{"$in": categoryList}
+	}
 
-    var products []models.Product
-    if err = cursor.All(ctx, &products); err != nil {
-        return nil, err
-    }
+	cursor, err := db.ProductCollection.Find(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
 
-    return products, nil
+	var products []models.Product
+	if err := cursor.All(ctx, &products); err != nil {
+		return nil, err
+	}
+
+	return products, nil
 }
+
+
