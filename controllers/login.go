@@ -8,11 +8,12 @@ import (
     "arttoy-hub/models"
     "github.com/gin-gonic/gin"
     "go.mongodb.org/mongo-driver/bson"
+    "go.mongodb.org/mongo-driver/mongo"
     "golang.org/x/crypto/bcrypt"
     "github.com/golang-jwt/jwt/v4"
     "fmt"
 )
-
+var collection *mongo.Collection
 var jwtSecret = []byte(os.Getenv("JWT_SECRET"))
 
 // ตรวจสอบพาสเวิร์ด

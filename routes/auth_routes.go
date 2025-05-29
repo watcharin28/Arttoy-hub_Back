@@ -8,8 +8,11 @@ import (
 
 func SetupAuthRoutes(r *gin.Engine) {
 	// Public user routes
-	r.POST("/Login", controllers.Login)       // Login route
-	r.POST("/Register", controllers.Register) // Register route
+	r.POST("/Login", controllers.Login) // Login route
+	// r.POST("/Register", controllers.Register) // Register route
+	// Register ใหม่แบบ OTP
+	r.POST("/register/request-otp", controllers.RequestOTP) // ส่ง OTP ไปอีเมล
+	r.POST("/register/verify-otp", controllers.VerifyOTP)   // ยืนยัน OTP + สมัคร
 	r.GET("/search", controllers.SearchProducts)
 	// ใช้ AuthMiddleware กับ routes ที่ต้องการให้ login ก่อน
 	userRoutes := r.Group("/api/user")
@@ -29,13 +32,13 @@ func SetupAuthRoutes(r *gin.Engine) {
 		userRoutes.PUT("/addresses/:address_id", controllers.UpdateAddress)
 		// userRoutes.PUT("/update-address-field", controllers.UpdateUserWithAddressField) //เอาไว้อัพฟิลuser ที่ไม่มี
 		userRoutes.POST("/products", controllers.AddProduct)
-        userRoutes.POST("/become-seller",controllers.BecomeSeller)
+		userRoutes.POST("/become-seller", controllers.BecomeSeller)
 
 	}
 }
 
 func SetupProductRoutes(r *gin.Engine) {
-	
+
 	products := r.Group("/api/products")
 	{
 		products.GET("", controllers.GetAllProducts)
@@ -47,43 +50,56 @@ func SetupProductRoutes(r *gin.Engine) {
 
 }
 func SetupCartRoutes(r *gin.Engine) {
-	cart := r.Group("/api/cart", middlewares.AuthMiddleware()) 
+	cart := r.Group("/api/cart", middlewares.AuthMiddleware())
 	{
-		cart.POST("/", controllers.AddToCart)              // เพิ่มสินค้าลงตะกร้า
-		cart.GET("/", controllers.GetCart)                 //  ดูสินค้าทั้งหมดในตะกร้า
+		cart.POST("/", controllers.AddToCart)                   // เพิ่มสินค้าลงตะกร้า
+		cart.GET("/", controllers.GetCart)                      //  ดูสินค้าทั้งหมดในตะกร้า
 		cart.DELETE("/:product_id", controllers.RemoveFromCart) // ลบสินค้าออกจากตะกร้า
 	}
 }
 func SetupOrderRoutes(r *gin.Engine) {
 	order := r.Group("/api/orders", middlewares.AuthMiddleware())
 	{
-		order.POST("/", controllers.CreateOrder)   
-		order.POST("/custom", controllers.CreateCustomOrder)     // สร้างคำสั่งซื้อจากตะกร้า
-		order.GET("/", controllers.GetUserOrders)       //  ดูคำสั่งซื้อทั้งหมดของผู้ใช้
+		order.GET("/", controllers.GetUserOrders)            //  ดูคำสั่งซื้อทั้งหมดของผู้ใช้
 		order.GET("/:id", controllers.GetOrderByID)
-		order.POST("/:id/pay", controllers.PayOrder)     //  ดูคำสั่งซื้อรายการเดียว
 		order.POST("/:id/confirm", controllers.ConfirmOrderDelivery)
 		order.PUT("/:id/tracking", controllers.UpdateTrackingNumber)
-
+		order.PUT("/:id/accept", controllers.AcceptOrderBySeller)
+		order.PUT("/:id/reject", controllers.RejectOrderBySeller)
+		order.GET("/seller", controllers.GetSellerOrders)
+		order.POST("/qr", controllers.CreatePromptPayCustomOrder)
+		order.POST("/:id/mark-paid", controllers.MarkPromptPayOrderPaid)
 	}
 }
 func PaymentRoutes(r *gin.Engine) {
-    payment := r.Group("/api/payment")
-    {
-        payment.POST("/charge", controllers.CreateTestCharge)
-    }
+	payment := r.Group("/api/payment")
+	{
+		payment.POST("/charge", controllers.CreateTestCharge)
+	}
 }
 func CategoryRoutes(r *gin.Engine) {
-    category := r.Group("/api/categories")
-    {
-        category.GET("/", controllers.GetAllCategories)
-        category.POST("/", controllers.AddCategory)
-    }
+	category := r.Group("/api/categories")
+	{
+		category.GET("/", controllers.GetAllCategories)
+		category.POST("/", controllers.AddCategory)
+	}
 }
 func SetupReviewRoutes(r *gin.Engine) {
-    review := r.Group("/api/reviews",)
-    {
-        review.POST("/", middlewares.AuthMiddleware(), controllers.CreateReview)
-        review.GET("/seller/:sellerId", controllers.GetReviewsBySeller)
-    }
+	review := r.Group("/api/reviews")
+	{
+		review.POST("/", middlewares.AuthMiddleware(), controllers.CreateReview)
+		review.GET("/seller/:sellerId", controllers.GetReviewsBySeller)
+	}
+}
+
+
+func SetupAdminRoutes(r *gin.Engine) {
+	admin := r.Group("/api/admin")
+	admin.Use(middlewares.AuthMiddleware(), middlewares.AdminOnly()) // ตรวจสอบ JWT + ตรวจ role = admin
+	{
+		admin.GET("/users", controllers.GetAllUsers)        // ✅ API ดึงข้อมูลผู้ใช้
+		admin.GET("/products", controllers.GetAllProducts)  // ✅ ใช้ร่วมกับ public
+		admin.GET("/orders", controllers.GetAllOrders)      // ✅ สร้างเพิ่มใน controllers
+		admin.GET("/reports", controllers.GetAllReports)    // ✅ สร้างเพิ่มใน controllers
+	}
 }

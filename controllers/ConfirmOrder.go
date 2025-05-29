@@ -198,3 +198,124 @@ func UpdateTrackingNumber(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"message": "Tracking number updated"})
 }
+func AcceptOrderBySeller(c *gin.Context) {
+	orderID := c.Param("id")
+	objID, err := primitive.ObjectIDFromHex(orderID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid order ID"})
+		return
+	}
+
+	sellerID := c.GetString("user_id")
+	sellerObjID, err := primitive.ObjectIDFromHex(sellerID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid seller ID"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// ดึง order
+	var order models.Order
+	err = db.OpenCollection("orders").FindOne(ctx, bson.M{"_id": objID}).Decode(&order)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Order not found"})
+		return
+	}
+
+	if len(order.Items) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Order has no items"})
+		return
+	}
+
+	// ตรวจว่าเป็นสินค้าของผู้ขายคนนี้
+	var product models.Product
+	err = db.OpenCollection("products").FindOne(ctx, bson.M{"_id": order.Items[0].ProductID}).Decode(&product)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Product not found"})
+		return
+	}
+
+	if product.SellerID != sellerObjID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "You are not allowed to accept this order"})
+		return
+	}
+
+	if order.Status != "paid" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Only 'paid' orders can be accepted"})
+		return
+	}
+
+	_, err = db.OpenCollection("orders").UpdateByID(ctx, objID, bson.M{
+		"$set": bson.M{
+			"status": "accepted",
+		},
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to accept order"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Order accepted successfully"})
+}
+func RejectOrderBySeller(c *gin.Context) {
+	orderID := c.Param("id")
+	objID, err := primitive.ObjectIDFromHex(orderID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid order ID"})
+		return
+	}
+
+	sellerID := c.GetString("user_id")
+	sellerObjID, err := primitive.ObjectIDFromHex(sellerID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid seller ID"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// ดึง order
+	var order models.Order
+	err = db.OpenCollection("orders").FindOne(ctx, bson.M{"_id": objID}).Decode(&order)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Order not found"})
+		return
+	}
+
+	if len(order.Items) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Order has no items"})
+		return
+	}
+
+	var product models.Product
+	err = db.OpenCollection("products").FindOne(ctx, bson.M{"_id": order.Items[0].ProductID}).Decode(&product)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Product not found"})
+		return
+	}
+
+	if product.SellerID != sellerObjID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "You are not allowed to reject this order"})
+		return
+	}
+
+	if order.Status != "paid" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Only 'paid' orders can be rejected"})
+		return
+	}
+
+	_, err = db.OpenCollection("orders").UpdateByID(ctx, objID, bson.M{
+		"$set": bson.M{
+			"status": "rejected",
+		},
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to reject order"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Order rejected successfully"})
+}

@@ -1,11 +1,16 @@
 package middlewares
 
 import (
-	"net/http"
-	"os"
+	"arttoy-hub/database"
+	"arttoy-hub/models"
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v4"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/bson"
+	"net/http"
+	"context"
+	"os"
 )
 
 var jwtSecret = []byte(os.Getenv("JWT_SECRET"))
@@ -26,7 +31,7 @@ func AuthMiddleware() gin.HandlerFunc {
 			}
 			return jwtSecret, nil
 		})
-        if err != nil {
+		if err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
 			c.Abort()
 			return
@@ -46,5 +51,35 @@ func AuthMiddleware() gin.HandlerFunc {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
 			c.Abort()
 		}
+	}
+}
+func AdminOnly() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID := c.GetString("user_id")
+		if userID == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+			c.Abort()
+			return
+		}
+
+		// ดึงข้อมูลผู้ใช้จาก MongoDB
+		objID, _ := primitive.ObjectIDFromHex(userID)
+		userCollection := db.OpenCollection("users")
+		var user models.User
+		err := userCollection.FindOne(context.TODO(), bson.M{"_id": objID}).Decode(&user)
+		if err != nil {
+			c.JSON(http.StatusForbidden, gin.H{"error": "ไม่พบข้อมูลผู้ใช้"})
+			c.Abort()
+			return
+		}
+
+		// เงื่อนไข: ถ้า gmail ตรงกับ admin
+		if user.Gmail != "kkong@mail.com" {
+			c.JSON(http.StatusForbidden, gin.H{"error": "เฉพาะผู้ดูแลระบบเท่านั้น"})
+			c.Abort()
+			return
+		}
+
+		c.Next()
 	}
 }

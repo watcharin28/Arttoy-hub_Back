@@ -312,4 +312,60 @@ func GetFavoriteStatus(c *gin.Context) {
     alreadyLiked := contains(user.LikedItems, productId)
     c.JSON(http.StatusOK, gin.H{"liked": alreadyLiked})
  }
- 
+func GetAllUsers(c *gin.Context) {
+  collection := db.OpenCollection("users")
+  ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+  defer cancel()
+
+  cursor, err := collection.Find(ctx, bson.M{})
+  if err != nil {
+    c.JSON(http.StatusInternalServerError, gin.H{"error": "ไม่สามารถดึงข้อมูลผู้ใช้ได้"})
+    return
+  }
+
+  var users []models.User
+  if err := cursor.All(ctx, &users); err != nil {
+    c.JSON(http.StatusInternalServerError, gin.H{"error": "เกิดข้อผิดพลาดในการอ่านข้อมูล"})
+    return
+  }
+
+  c.JSON(http.StatusOK, users)
+}
+func GetAllOrders(c *gin.Context) {
+	collection := db.OpenCollection("orders")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	cursor, err := collection.Find(ctx, bson.M{})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ไม่สามารถดึงข้อมูลคำสั่งซื้อได้"})
+		return
+	}
+
+	var orders []models.Order
+	if err := cursor.All(ctx, &orders); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "เกิดข้อผิดพลาดในการอ่านคำสั่งซื้อ"})
+		return
+	}
+
+	c.JSON(http.StatusOK, orders)
+}
+func GetAllReports(c *gin.Context) {
+	collection := db.OpenCollection("reports")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	cursor, err := collection.Find(ctx, bson.M{})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ไม่สามารถดึงรายงานได้"})
+		return
+	}
+
+	var reports []models.Report
+	if err := cursor.All(ctx, &reports); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "เกิดข้อผิดพลาดในการอ่านรายงาน"})
+		return
+	}
+
+	c.JSON(http.StatusOK, reports)
+}

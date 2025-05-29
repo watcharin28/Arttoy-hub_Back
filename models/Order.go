@@ -25,6 +25,8 @@ type Order struct {
 	Status         string             `json:"status" bson:"status"`
 	TrackingNumber string             `json:"tracking_number,omitempty" bson:"tracking_number,omitempty"`
 	CreatedAt      time.Time          `json:"created_at" bson:"created_at"`
+	SourceID       string             `json:"source_id,omitempty" bson:"source_id,omitempty"`
+	PaidAt         time.Time          `json:"paid_at,omitempty" bson:"paid_at,omitempty"`
 }
 
 func CreateOrder(order Order) (Order, error) {

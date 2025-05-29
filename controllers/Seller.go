@@ -4,15 +4,15 @@ import (
 	"arttoy-hub/database"
 	"arttoy-hub/models"
 	"context"
-	"net/http"
-	"os"
-	"time"
-	"strings"
 	"github.com/gin-gonic/gin"
 	"github.com/omise/omise-go"
 	"github.com/omise/omise-go/operations"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"net/http"
+	"os"
+	"fmt"
+	"time"
 )
 
 func BecomeSeller(c *gin.Context) {
@@ -20,12 +20,14 @@ func BecomeSeller(c *gin.Context) {
 
 	// รองรับ multipart/form-data
 	if err := c.Request.ParseMultipartForm(32 << 20); err != nil {
+		fmt.Println("❌ ParseMultipartForm failed:", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to parse multipart form: " + err.Error()})
 		return
 	}
 
 	userID := c.GetString("user_id")
 	if userID == "" {
+		fmt.Println("❌ No user_id in context")
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "ไม่พบ ID ผู้ใช้ใน context"})
 		return
 	}
@@ -36,7 +38,7 @@ func BecomeSeller(c *gin.Context) {
 	}
 
 	// รับไฟล์บัตรประชาชน
-	file, _, err := c.Request.FormFile("id_card_image_url")
+	file, _, err := c.Request.FormFile("id_card_image")
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to upload image: " + err.Error()})
 		return
@@ -50,13 +52,32 @@ func BecomeSeller(c *gin.Context) {
 	}
 
 	// ดึงข้อมูลจากฟอร์ม
+	fmt.Println("✅ ParseMultipartForm ผ่านแล้ว")
 	req.FirstName = c.PostForm("first_name")
 	req.LastName = c.PostForm("last_name")
+	fmt.Println("✅ First Name:", req.FirstName)
 	req.BankAccountName = c.PostForm("bank_account_name")
 	req.BankName = c.PostForm("bank_name")
+	fmt.Println("✅ bank_name:", req.BankName)
 	req.BankAccountNumber = c.PostForm("bank_account_number")
 	req.CitizenID = c.PostForm("citizen_id")
 	req.IDCardImageURL = idCardImageURL
+	// สร้าง map ธนาคารให้ตรงกับ Omise
+	var bankMap = map[string]string{
+		"กสิกรไทย":   "kbank",
+		"ไทยพาณิชย์": "scb",
+		"กรุงเทพ":    "bbl",
+		"กรุงศรี":    "bay",
+		"กรุงไทย":    "ktb",
+		// เพิ่มเติมได้ตาม Omise Docs
+	}
+
+	brandCode, ok := bankMap[req.BankName]
+	if !ok {
+		fmt.Println("❌ ไม่รองรับธนาคาร:", req.BankName)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ชื่อธนาคารไม่ถูกต้องหรือไม่รองรับ"})
+		return
+	}
 
 	// ตรวจว่าข้อมูลครบ
 	if req.FirstName == "" || req.LastName == "" || req.BankAccountName == "" ||
@@ -68,6 +89,7 @@ func BecomeSeller(c *gin.Context) {
 	// ตรวจว่า "ชื่อ-นามสกุล" ตรงกับ "ชื่อบัญชี"
 	fullName := req.FirstName + " " + req.LastName
 	if fullName != req.BankAccountName {
+		fmt.Println("❌ Missing field(s):", req)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "ชื่อบัญชีธนาคารไม่ตรงกับชื่อ-นามสกุลที่กรอก"})
 		return
 	}
@@ -105,15 +127,15 @@ func BecomeSeller(c *gin.Context) {
 	}
 
 	recipient := &omise.Recipient{}
-err = client.Do(recipient, &operations.CreateRecipient{
-	Name: req.BankAccountName,
-	Type: "individual",
-	BankAccount: &omise.BankAccountRequest{
-		Brand:  strings.ToLower(req.BankName), 
-		Number: req.BankAccountNumber,
-		Name:   req.BankAccountName,
-	},
-})
+	err = client.Do(recipient, &operations.CreateRecipient{
+		Name: req.BankAccountName,
+		Type: "individual",
+		BankAccount: &omise.BankAccountRequest{
+			Brand:  brandCode,
+			Number: req.BankAccountNumber,
+			Name:   req.BankAccountName,
+		},
+	})
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to create recipient in Omise: " + err.Error()})
 		return
