@@ -7,14 +7,14 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/gin-gonic/gin"
+	"github.com/omise/omise-go"
+	"github.com/omise/omise-go/operations"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"io/ioutil"
 	"net/http"
 	"os"
 	"time"
-	// "github.com/omise/omise-go"
-	// "github.com/omise/omise-go/operations"
 )
 
 func GetUserOrders(c *gin.Context) {
@@ -96,6 +96,8 @@ func GetOrderByID(c *gin.Context) {
 	c.JSON(http.StatusOK, order)
 }
 
+var charge *omise.Charge
+
 type QRSourceResponse struct {
 	ID            string `json:"id"`
 	ScannableCode struct {
@@ -117,7 +119,7 @@ func CreatePromptPayCustomOrder(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// 🔒 ตรวจสอบว่ามีออเดอร์ที่ยังไม่จ่ายอยู่หรือไม่
+	// ตรวจสอบว่ามีออเดอร์ที่ยังไม่จ่ายอยู่หรือไม่
 	var existing models.Order
 	err = db.OpenCollection("orders").FindOne(ctx, bson.M{
 		"user_id": userObjID,
@@ -134,17 +136,20 @@ func CreatePromptPayCustomOrder(c *gin.Context) {
 		return
 	}
 
-	//  รับข้อมูลจากผู้ใช้
+	// รับข้อมูลจากผู้ใช้: แก้โครงสร้างให้รับ id + quantity
 	var input struct {
-		Items     []string `json:"items"`      // รายการสินค้า
-		AddressID string   `json:"address_id"` // optional
+		Items []struct {
+			ID       string `json:"id"`
+			Quantity int    `json:"quantity"`
+		} `json:"items"`
+		AddressID string `json:"address_id"`
 	}
 	if err := c.ShouldBindJSON(&input); err != nil || len(input.Items) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input"})
 		return
 	}
 
-	//  ดึงที่อยู่จาก user
+	// ดึงที่อยู่จาก user
 	var user models.User
 	if err := db.OpenCollection("users").FindOne(ctx, bson.M{"_id": userObjID}).Decode(&user); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
@@ -181,12 +186,12 @@ func CreatePromptPayCustomOrder(c *gin.Context) {
 		}
 	}
 
-	// รวมรายการสินค้า
+	// รวมรายการสินค้าและคำนวณราคา
 	var orderItems []models.OrderItem
 	var total float64
 
-	for _, pid := range input.Items {
-		productObjID, err := primitive.ObjectIDFromHex(pid)
+	for _, item := range input.Items {
+		productObjID, err := primitive.ObjectIDFromHex(item.ID)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid product ID"})
 			return
@@ -199,15 +204,22 @@ func CreatePromptPayCustomOrder(c *gin.Context) {
 			return
 		}
 
+		qty := item.Quantity
+		if qty <= 0 {
+			qty = 1
+		}
+
 		orderItems = append(orderItems, models.OrderItem{
 			ProductID: product.ID,
 			SellerID:  product.SellerID,
 			Price:     product.Price,
+			Quantity:  qty,
 		})
-		total += product.Price
+
+		total += product.Price * float64(qty)
 	}
 
-	// 🧾 สร้าง QR กับ Omise
+	// สร้าง QR กับ Omise (เหมือนเดิม)
 	payload := map[string]interface{}{
 		"amount":   int(total * 100),
 		"currency": "thb",
@@ -229,14 +241,32 @@ func CreatePromptPayCustomOrder(c *gin.Context) {
 	body, _ := ioutil.ReadAll(resp.Body)
 	var qr QRSourceResponse
 	json.Unmarshal(body, &qr)
+	client, err := omise.NewClient(os.Getenv("OMISE_PUBLIC_KEY"), os.Getenv("OMISE_SECRET_KEY"))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Omise client init failed"})
+		return
+	}
 
-	// 💾 สร้างคำสั่งซื้อ
+	chargeOp := &operations.CreateCharge{
+		Amount:   int64(total * 100),
+		Currency: "thb",
+		Source:   qr.ID,
+	}
+
+	// สร้างตัวแปรไว้เก็บข้อมูล charge
+	var charge omise.Charge
+	if err := client.Do(&charge, chargeOp); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Create charge failed: " + err.Error()})
+		return
+	}
+	// สร้างคำสั่งซื้อ
 	order := models.Order{
 		UserID:    userObjID,
 		Items:     orderItems,
 		Total:     total,
 		Status:    "waiting_payment",
 		SourceID:  qr.ID,
+		ChargeID:  charge.ID,
 		CreatedAt: time.Now(),
 	}
 	newOrder, err := models.CreateOrder(order)
@@ -245,21 +275,21 @@ func CreatePromptPayCustomOrder(c *gin.Context) {
 		return
 	}
 
-	// 📤 ส่ง QR กลับ
+	// ส่ง QR กลับ
 	qrImage := qr.ScannableCode.Image.URI
 	if qrImage == "" {
 		qrImage = "https://cdn.omise.co/scannable_code/test_qr.png"
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"order_id":    newOrder.ID.Hex(),
-		"qr_image":    qrImage,
-		"source_id":   qr.ID,
-		"total":       total,
-		"address_used": selectedAddr, // ✅ ส่ง address ที่ใช้กลับด้วย
+		"order_id":     newOrder.ID.Hex(),
+		"qr_image":     qrImage,
+		"source_id":    qr.ID,
+		"charge_id":    charge.ID,
+		"total":        total,
+		"address_used": selectedAddr, // ส่งที่อยู่ที่ใช้กลับ
 	})
 }
-
 
 // ม็อคว่า “จ่ายแล้ว” (เฉพาะ test mode)
 func MarkPromptPayOrderPaid(c *gin.Context) {

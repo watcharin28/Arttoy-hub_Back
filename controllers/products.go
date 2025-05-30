@@ -4,16 +4,36 @@ import (
 	"arttoy-hub/database"
 	"arttoy-hub/models"
 	"context"
+	"encoding/json"
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 	"net/http"
 	"strconv"
 	"time"
-	"encoding/json"
 	// "fmt"
 )
+
+type ReviewResponse struct {
+	ID           primitive.ObjectID `json:"id"`
+	UserName     string             `json:"userName"`
+	Rating       int                `json:"rating"`
+	Comment      string             `json:"comment"`
+	Date         time.Time          `json:"date"`
+	ProfileImage string             `json:"profileImage"`
+}
+
+type ProductDetailResponse struct {
+	models.Product `json:",inline"`
+	Images         []string `json:"images"`
+	Seller         struct {
+		ID   primitive.ObjectID `json:"id"`
+		Name string `json:"name"`
+	} `json:"seller"`
+	Reviews []ReviewResponse `json:"reviews"`
+}
 
 func AddProduct(c *gin.Context) {
 	var product models.Product
@@ -118,17 +138,84 @@ func GetAllProducts(c *gin.Context) {
 
 func GetProductByID(c *gin.Context) {
 	id := c.Param("id")
-	product, err := models.GetProductByID(id)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	productObjID, err := primitive.ObjectIDFromHex(id)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
-			return
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid product ID"})
 		return
 	}
-	c.JSON(http.StatusOK, product)
+
+	var product models.Product
+	err = db.ProductCollection.FindOne(ctx, bson.M{"_id": productObjID}).Decode(&product)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
+		return
+	}
+
+	var user models.User
+	err = db.UserCollection.FindOne(ctx, bson.M{"_id": product.SellerID}).Decode(&user)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Seller not found"})
+		return
+	}
+
+	opts := options.Find().SetSort(bson.D{{Key: "created_at", Value: -1}})
+	reviewCursor, err := db.ReviewCollection.Find(ctx, bson.M{"seller_id": product.SellerID}, opts)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch reviews"})
+		return
+	}
+	defer reviewCursor.Close(ctx)
+
+	var reviews []ReviewResponse
+	totalRating := 0
+
+	for reviewCursor.Next(ctx) {
+		var r models.Review
+		if err := reviewCursor.Decode(&r); err != nil {
+			continue
+		}
+
+		var reviewer models.User
+		_ = db.UserCollection.FindOne(ctx, bson.M{"_id": r.UserID}).Decode(&reviewer)
+
+		reviews = append(reviews, ReviewResponse{
+			ID:           r.ID,
+			UserName:     reviewer.Username,
+			Rating:       r.Rating,
+			Comment:      r.Comment,
+			Date:         r.CreatedAt,
+			ProfileImage: reviewer.ProfileImage,
+		})
+
+		totalRating += r.Rating
+	}
+
+	// ✅ คำนวณค่าเฉลี่ย Rating จากรีวิว
+	averageRating := 0.0
+	if len(reviews) > 0 {
+		averageRating = float64(totalRating) / float64(len(reviews))
+	}
+	product.Rating = averageRating
+
+	res := ProductDetailResponse{
+		Product: product,
+		Images:  product.ImageURLs,
+		Seller: struct {
+			ID   primitive.ObjectID `json:"id"`
+			Name string             `json:"name"`
+		}{
+			ID:   user.ID,
+			Name: user.Username,
+		},
+		Reviews: reviews,
+	}
+
+	c.JSON(http.StatusOK, res)
 }
+
 
 func UpdateProduct(c *gin.Context) {
 	id := c.Param("id")
@@ -231,7 +318,6 @@ func UpdateProduct(c *gin.Context) {
 
 	c.JSON(http.StatusOK, product)
 }
-
 
 func DeleteProduct(c *gin.Context) {
 	id := c.Param("id")

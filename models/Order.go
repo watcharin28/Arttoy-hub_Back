@@ -14,6 +14,7 @@ type OrderItem struct {
 	ProductID primitive.ObjectID `json:"product_id" bson:"product_id"`
 	SellerID  primitive.ObjectID `json:"seller_id" bson:"seller_id"`
 	Price     float64            `json:"price" bson:"price"`
+	Quantity  int                `bson:"quantity" json:"quantity"`
 	Item      *Product           `json:"item,omitempty" bson:"-"` //  เพิ่มตรงนี้
 }
 

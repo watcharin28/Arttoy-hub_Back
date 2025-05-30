@@ -15,6 +15,8 @@ var Client *mongo.Client
 // ProductCollection ตัวแปรสำหรับ collection "products"
 var ProductCollection *mongo.Collection
 var CategoryCollection *mongo.Collection
+var UserCollection *mongo.Collection
+var ReviewCollection *mongo.Collection
 
 // InitDB เริ่มต้นการเชื่อมต่อ MongoDB
 func InitDB() {
@@ -46,6 +48,8 @@ func InitDB() {
 	// กำหนด ProductCollection (ปรับชื่อ database ตามที่คุณใช้ใน MongoDB Atlas)
 	ProductCollection = client.Database("arttoyhub_db").Collection("products")
 	CategoryCollection = client.Database("arttoyhub_db").Collection("categories")
+	UserCollection = client.Database("arttoyhub_db").Collection("users")
+	ReviewCollection = client.Database("arttoyhub_db").Collection("reviews")
 
 	log.Println("Connected to MongoDB Atlas!")
 }

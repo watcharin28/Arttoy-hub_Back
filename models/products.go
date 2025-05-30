@@ -25,6 +25,7 @@ type Product struct {
     CreatedAt   time.Time          `json:"created_at" bson:"created_at"`
 }
 
+
 // เพิ่มสินค้าใหม่
 func AddProduct(product Product) (Product, error) {
     ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
