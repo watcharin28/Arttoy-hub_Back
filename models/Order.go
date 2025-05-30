@@ -12,21 +12,25 @@ import (
 
 type OrderItem struct {
 	ProductID primitive.ObjectID `json:"product_id" bson:"product_id"`
+	SellerID  primitive.ObjectID `json:"seller_id" bson:"seller_id"`
 	Price     float64            `json:"price" bson:"price"`
+	Item      *Product           `json:"item,omitempty" bson:"-"` //  เพิ่มตรงนี้
 }
 
 type Order struct {
-	ID             primitive.ObjectID `json:"id" bson:"_id,omitempty"`
-	UserID         primitive.ObjectID `json:"user_id" bson:"user_id"`
-	Items          []OrderItem        `json:"items" bson:"items"`
-	Total          float64            `json:"total" bson:"total"`
-	ChargeID       string             `json:"charge_id,omitempty" bson:"charge_id,omitempty"`
-	TransferID     string             `json:"transfer_id,omitempty" bson:"transfer_id,omitempty"`
-	Status         string             `json:"status" bson:"status"`
-	TrackingNumber string             `json:"tracking_number,omitempty" bson:"tracking_number,omitempty"`
-	CreatedAt      time.Time          `json:"created_at" bson:"created_at"`
-	SourceID       string             `json:"source_id,omitempty" bson:"source_id,omitempty"`
-	PaidAt         time.Time          `json:"paid_at,omitempty" bson:"paid_at,omitempty"`
+	ID              primitive.ObjectID `json:"id" bson:"_id,omitempty"`
+	UserID          primitive.ObjectID `json:"user_id" bson:"user_id"`
+	Items           []OrderItem        `json:"items" bson:"items"`
+	Total           float64            `json:"total" bson:"total"`
+	ChargeID        string             `json:"charge_id,omitempty" bson:"charge_id,omitempty"`
+	TransferID      string             `json:"transfer_id,omitempty" bson:"transfer_id,omitempty"`
+	Status          string             `json:"status" bson:"status"`
+	TrackingNumber  string             `json:"tracking_number,omitempty" bson:"tracking_number,omitempty"`
+	SenderName      string             `json:"sender_name,omitempty" bson:"sender_name,omitempty"`
+	ShippingAddress string             `json:"shipping_address,omitempty" bson:"shipping_address,omitempty"`
+	CreatedAt       time.Time          `json:"created_at" bson:"created_at"`
+	SourceID        string             `json:"source_id,omitempty" bson:"source_id,omitempty"`
+	PaidAt          time.Time          `json:"paid_at,omitempty" bson:"paid_at,omitempty"`
 }
 
 func CreateOrder(order Order) (Order, error) {

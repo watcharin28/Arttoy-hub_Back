@@ -35,14 +35,11 @@ func main() {
 
 	// ตั้งค่า Gin router
 	r := gin.Default()
+	
 
 	// เรียก routes
 	routes.SetupRoutes(r)
-	// protected := r.Group("/protected")
-	// protected.Use(controllers.AuthMiddleware())
-	// protected.GET("/data", func(c *gin.Context) {
-	//     c.JSON(http.StatusOK, gin.H{"message": "This is protected data"})
-	// })
+
 	// เริ่มเซิร์ฟเวอร์
 	
 	log.Println("Starting server on :8080")

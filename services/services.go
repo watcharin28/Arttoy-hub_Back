@@ -13,7 +13,7 @@ func SearchProductsService(keyword string, categoryList []string) ([]models.Prod
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	filter := bson.M{}
+	filter := bson.M{"is_sold": false,}
 
 	if keyword != "" {
 		filter["$or"] = []bson.M{

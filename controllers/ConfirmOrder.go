@@ -48,7 +48,7 @@ func ConfirmOrderDelivery(c *gin.Context) {
 	}
 
 	//  ตรวจว่าคำสั่งซื้อต้องอยู่ในสถานะ "paid"
-	if order.Status != "shipped" {
+	if order.Status != "processing" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Order not in paid state"})
 		return
 	}
@@ -128,7 +128,6 @@ func UpdateTrackingNumber(c *gin.Context) {
 		return
 	}
 
-	// ดึง userID จาก JWT context
 	userID := c.GetString("user_id")
 	if userID == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
@@ -140,12 +139,13 @@ func UpdateTrackingNumber(c *gin.Context) {
 		return
 	}
 
-	// รับ tracking_number จาก body
+	// ✅ รับทั้ง tracking_number และ sender_name
 	var input struct {
 		TrackingNumber string `json:"tracking_number"`
+		SenderName     string `json:"sender_name"` // เพิ่มตรงนี้
 	}
-	if err := c.ShouldBindJSON(&input); err != nil || input.TrackingNumber == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Tracking number is required"})
+	if err := c.ShouldBindJSON(&input); err != nil || input.TrackingNumber == "" || input.SenderName == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Tracking number and sender name are required"})
 		return
 	}
 
@@ -167,7 +167,7 @@ func UpdateTrackingNumber(c *gin.Context) {
 		return
 	}
 
-	// ตรวจสิทธิ์: ผู้ขายต้องเป็นเจ้าของสินค้า
+	// ตรวจสิทธิ์ผู้ขาย
 	if len(order.Items) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Order has no items"})
 		return
@@ -184,11 +184,12 @@ func UpdateTrackingNumber(c *gin.Context) {
 		return
 	}
 
-	// อัปเดต tracking number และสถานะ
+	// ✅ อัปเดต tracking + sender + status
 	_, err = db.OpenCollection("orders").UpdateByID(ctx, objID, bson.M{
 		"$set": bson.M{
 			"tracking_number": input.TrackingNumber,
-			"status":          "shipped",
+			"sender_name":     input.SenderName,
+			"status":          "processing",
 		},
 	})
 	if err != nil {
@@ -196,8 +197,9 @@ func UpdateTrackingNumber(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Tracking number updated"})
+	c.JSON(http.StatusOK, gin.H{"message": "Tracking number and sender name updated"})
 }
+
 func AcceptOrderBySeller(c *gin.Context) {
 	orderID := c.Param("id")
 	objID, err := primitive.ObjectIDFromHex(orderID)
@@ -242,14 +244,14 @@ func AcceptOrderBySeller(c *gin.Context) {
 		return
 	}
 
-	if order.Status != "paid" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Only 'paid' orders can be accepted"})
+	if order.Status != "pending" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Only 'pending' orders can be accepted"})
 		return
 	}
 
 	_, err = db.OpenCollection("orders").UpdateByID(ctx, objID, bson.M{
 		"$set": bson.M{
-			"status": "accepted",
+			"status": "shipping",
 		},
 	})
 	if err != nil {

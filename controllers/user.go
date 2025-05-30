@@ -188,13 +188,12 @@ func LikeProduct(c *gin.Context) {
 
 func GetUserFavorites(c *gin.Context) {
     userID := c.GetString("user_id")
-	objID, err := primitive.ObjectIDFromHex(userID)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
-		return
-	}
+    objID, err := primitive.ObjectIDFromHex(userID)
+    if err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+        return
+    }
 
-    // ค้นหาผู้ใช้ในฐานข้อมูล
     var user models.User
     ctx := context.TODO()
     err = db.OpenCollection("users").FindOne(ctx, bson.M{"_id": objID}).Decode(&user)
@@ -202,6 +201,7 @@ func GetUserFavorites(c *gin.Context) {
         c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
         return
     }
+
     likedItems := []primitive.ObjectID{}
     for _, item := range user.LikedItems {
         objID, err := primitive.ObjectIDFromHex(item)
@@ -209,32 +209,31 @@ func GetUserFavorites(c *gin.Context) {
             likedItems = append(likedItems, objID)
         }
     }
-    fmt.Println("Liked Items:", likedItems)
 
-    // ตรวจสอบว่าผู้ใช้ไม่มีสินค้าที่ชื่นชอบ
-    if len(user.LikedItems) == 0 {
-        c.JSON(http.StatusOK, []models.Product{})  // ส่งกลับรายการว่าง
+    if len(likedItems) == 0 {
+        c.JSON(http.StatusOK, []models.Product{})
         return
     }
 
-    // ค้นหาผลิตภัณฑ์ที่มี _id ตรงกับ likedItems
     var products []models.Product
-    cursor, err := db.OpenCollection("products").Find(ctx, bson.M{"_id": bson.M{"$in": likedItems}})
+    cursor, err := db.OpenCollection("products").Find(ctx, bson.M{
+        "_id":     bson.M{"$in": likedItems},
+        "is_sold": false, // ✅ ดึงเฉพาะสินค้าที่ "ยังไม่ขาย"
+    })
     if err != nil {
         c.JSON(http.StatusInternalServerError, gin.H{"error": "Error retrieving favorite products"})
         return
     }
-    defer cursor.Close(ctx)  // ปิด cursor เมื่อไม่ใช้งานแล้ว
+    defer cursor.Close(ctx)
 
-    // ดึงข้อมูลทั้งหมดจาก cursor
     if err := cursor.All(ctx, &products); err != nil {
         c.JSON(http.StatusInternalServerError, gin.H{"error": "Error decoding favorite products"})
         return
     }
 
-    // ส่งข้อมูล favorite products กลับ
     c.JSON(http.StatusOK, products)
 }
+
 
 func DeleteUserFavorite(c *gin.Context) {
     userID := c.GetString("user_id")
@@ -330,42 +329,4 @@ func GetAllUsers(c *gin.Context) {
   }
 
   c.JSON(http.StatusOK, users)
-}
-func GetAllOrders(c *gin.Context) {
-	collection := db.OpenCollection("orders")
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	cursor, err := collection.Find(ctx, bson.M{})
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "ไม่สามารถดึงข้อมูลคำสั่งซื้อได้"})
-		return
-	}
-
-	var orders []models.Order
-	if err := cursor.All(ctx, &orders); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "เกิดข้อผิดพลาดในการอ่านคำสั่งซื้อ"})
-		return
-	}
-
-	c.JSON(http.StatusOK, orders)
-}
-func GetAllReports(c *gin.Context) {
-	collection := db.OpenCollection("reports")
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	cursor, err := collection.Find(ctx, bson.M{})
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "ไม่สามารถดึงรายงานได้"})
-		return
-	}
-
-	var reports []models.Report
-	if err := cursor.All(ctx, &reports); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "เกิดข้อผิดพลาดในการอ่านรายงาน"})
-		return
-	}
-
-	c.JSON(http.StatusOK, reports)
 }

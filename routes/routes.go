@@ -2,7 +2,7 @@ package routes
 
 import (
 	// "net/http"
-	 "github.com/gin-contrib/cors"
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 )
 
@@ -23,5 +23,5 @@ func SetupRoutes(r *gin.Engine) {
 	PaymentRoutes(r)
 	CategoryRoutes(r)
 	SetupReviewRoutes(r)
-	SetupAdminRoutes(r)
+	
 }

@@ -46,7 +46,11 @@ func GetAllProducts() ([]Product, error) {
     defer cancel()
 
     var products []Product
-    cursor, err := db.ProductCollection.Find(ctx, bson.M{})
+
+    // ✅ ดึงเฉพาะสินค้าที่ยังไม่ถูกขาย
+    filter := bson.M{"is_sold": false}
+
+    cursor, err := db.ProductCollection.Find(ctx, filter)
     if err != nil {
         return nil, err
     }
@@ -57,6 +61,7 @@ func GetAllProducts() ([]Product, error) {
     }
     return products, nil
 }
+
 
 // ดึงสินค้าโดย ID
 func GetProductByID(id string) (Product, error) {

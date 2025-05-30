@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+	"encoding/json"
 	// "fmt"
 )
 
@@ -131,12 +132,94 @@ func GetProductByID(c *gin.Context) {
 
 func UpdateProduct(c *gin.Context) {
 	id := c.Param("id")
-	var updatedProduct models.Product
-	if err := c.ShouldBindJSON(&updatedProduct); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+
+	// Parse multipart form
+	if err := c.Request.ParseMultipartForm(32 << 20); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to parse multipart form"})
 		return
 	}
-	product, err := models.UpdateProduct(id, updatedProduct)
+
+	// ดึงค่าจาก form
+	name := c.PostForm("name")
+	description := c.PostForm("description")
+	priceStr := c.PostForm("price")
+	category := c.PostForm("category")
+	model := c.PostForm("model")
+	color := c.PostForm("color")
+	size := c.PostForm("size")
+	existingImagesJSON := c.PostForm("existing_images")
+
+	// แปลง price เป็น float
+	price, err := strconv.ParseFloat(priceStr, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid price"})
+		return
+	}
+
+	// แปลง existing_images จาก JSON เป็น []string
+	var existingImages []string
+	if err := json.Unmarshal([]byte(existingImagesJSON), &existingImages); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid existing_images"})
+		return
+	}
+
+	// รับไฟล์ใหม่ (product_image)
+	form, _ := c.MultipartForm()
+	files := form.File["product_image"]
+
+	var newImageURLs []string
+	for _, file := range files {
+		f, err := file.Open()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to open image"})
+			return
+		}
+		defer f.Close()
+
+		// อัปโหลดจริง
+		imageURL, err := UploadImageToGCS(f, file.Header.Get("Content-Type"), "product_images")
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upload image"})
+			return
+		}
+		newImageURLs = append(newImageURLs, imageURL)
+	}
+
+	// รวมรูปทั้งหมด
+	allImages := append(existingImages, newImageURLs...)
+
+	// 🔥 ดึงสินค้าเดิมจาก DB เพื่อเอา seller_id เดิมกลับมา
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	objID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid product ID"})
+		return
+	}
+
+	var oldProduct models.Product
+	err = db.OpenCollection("products").FindOne(ctx, bson.M{"_id": objID}).Decode(&oldProduct)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
+		return
+	}
+
+	// สร้าง struct ใหม่
+	updated := models.Product{
+		Name:        name,
+		Description: description,
+		Price:       price,
+		Category:    category,
+		Model:       model,
+		Color:       color,
+		Size:        size,
+		ImageURLs:   allImages,
+		SellerID:    oldProduct.SellerID, // ✅ ใส่ seller_id เดิมกลับเข้าไป
+	}
+
+	// แก้ไขใน DB
+	product, err := models.UpdateProduct(id, updated)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
@@ -145,8 +228,10 @@ func UpdateProduct(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
 	c.JSON(http.StatusOK, product)
 }
+
 
 func DeleteProduct(c *gin.Context) {
 	id := c.Param("id")
@@ -160,4 +245,38 @@ func DeleteProduct(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "Product deleted"})
+}
+
+func GetMyProducts(c *gin.Context) {
+	userID := c.GetString("user_id") // ได้จาก JWT middleware
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	// แปลง userID เป็น ObjectID
+	sellerID, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	collection := db.OpenCollection("products")
+	cursor, err := collection.Find(ctx, bson.M{"seller_id": sellerID})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get products"})
+		return
+	}
+	defer cursor.Close(ctx)
+
+	var products []models.Product
+	if err := cursor.All(ctx, &products); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error parsing product list"})
+		return
+	}
+
+	c.JSON(http.StatusOK, products)
 }

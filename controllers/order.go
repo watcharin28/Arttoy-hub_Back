@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"os"
 	"time"
-
 	// "github.com/omise/omise-go"
 	// "github.com/omise/omise-go/operations"
 )
@@ -41,12 +40,12 @@ func GetSellerOrders(c *gin.Context) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	ordersCol := db.OpenCollection("orders")
+	productsCol := db.OpenCollection("products")
 
-	// หาคำสั่งซื้อที่มีสินค้าของ seller คนนั้น
 	cursor, err := ordersCol.Find(ctx, bson.M{
 		"items": bson.M{
 			"$elemMatch": bson.M{
@@ -64,6 +63,18 @@ func GetSellerOrders(c *gin.Context) {
 	if err := cursor.All(ctx, &orders); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse seller orders"})
 		return
+	}
+
+	// เติมข้อมูลสินค้าให้แต่ละ order item
+	for i := range orders {
+		for j := range orders[i].Items {
+			productID := orders[i].Items[j].ProductID
+			var product models.Product
+			err := productsCol.FindOne(ctx, bson.M{"_id": productID}).Decode(&product)
+			if err == nil {
+				orders[i].Items[j].Item = &product
+			}
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{"orders": orders})
@@ -85,8 +96,6 @@ func GetOrderByID(c *gin.Context) {
 	c.JSON(http.StatusOK, order)
 }
 
-
-
 type QRSourceResponse struct {
 	ID            string `json:"id"`
 	ScannableCode struct {
@@ -105,35 +114,74 @@ func CreatePromptPayCustomOrder(c *gin.Context) {
 		return
 	}
 
-	// 🔒 ตรวจสอบว่ามีออเดอร์ที่ยังไม่จ่ายอยู่หรือไม่
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
+	// 🔒 ตรวจสอบว่ามีออเดอร์ที่ยังไม่จ่ายอยู่หรือไม่
 	var existing models.Order
 	err = db.OpenCollection("orders").FindOne(ctx, bson.M{
 		"user_id": userObjID,
-		"status": bson.M{"$in": []string{"unpaid", "waiting_payment"}},
+		"status":  bson.M{"$in": []string{"unpaid", "waiting_payment"}},
 	}).Decode(&existing)
 
 	if err == nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error":     "You already have an unpaid order",
-			"order_id":  existing.ID.Hex(),
-			"total":     existing.Total,
-			"status":    existing.Status,
+			"error":    "You already have an unpaid order",
+			"order_id": existing.ID.Hex(),
+			"total":    existing.Total,
+			"status":   existing.Status,
 		})
 		return
 	}
 
-	//  รับ product_id หลายตัว
+	//  รับข้อมูลจากผู้ใช้
 	var input struct {
-		Items []string `json:"items"` // ex: ["product_id1", "product_id2"]
+		Items     []string `json:"items"`      // รายการสินค้า
+		AddressID string   `json:"address_id"` // optional
 	}
 	if err := c.ShouldBindJSON(&input); err != nil || len(input.Items) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input"})
 		return
 	}
 
+	//  ดึงที่อยู่จาก user
+	var user models.User
+	if err := db.OpenCollection("users").FindOne(ctx, bson.M{"_id": userObjID}).Decode(&user); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+
+	var selectedAddr *models.Address
+	if input.AddressID != "" {
+		addrID, err := primitive.ObjectIDFromHex(input.AddressID)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid address ID"})
+			return
+		}
+		for _, addr := range user.Addresses {
+			if addr.ID == addrID {
+				selectedAddr = &addr
+				break
+			}
+		}
+		if selectedAddr == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Address not found"})
+			return
+		}
+	} else {
+		for _, addr := range user.Addresses {
+			if addr.IsDefault {
+				selectedAddr = &addr
+				break
+			}
+		}
+		if selectedAddr == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "No default address set"})
+			return
+		}
+	}
+
+	// รวมรายการสินค้า
 	var orderItems []models.OrderItem
 	var total float64
 
@@ -153,6 +201,7 @@ func CreatePromptPayCustomOrder(c *gin.Context) {
 
 		orderItems = append(orderItems, models.OrderItem{
 			ProductID: product.ID,
+			SellerID:  product.SellerID,
 			Price:     product.Price,
 		})
 		total += product.Price
@@ -181,7 +230,7 @@ func CreatePromptPayCustomOrder(c *gin.Context) {
 	var qr QRSourceResponse
 	json.Unmarshal(body, &qr)
 
-	// 💾 สร้าง order ใหม่
+	// 💾 สร้างคำสั่งซื้อ
 	order := models.Order{
 		UserID:    userObjID,
 		Items:     orderItems,
@@ -203,9 +252,11 @@ func CreatePromptPayCustomOrder(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"order_id":  newOrder.ID.Hex(),
-		"qr_image":  qrImage,
-		"source_id": qr.ID,
+		"order_id":    newOrder.ID.Hex(),
+		"qr_image":    qrImage,
+		"source_id":   qr.ID,
+		"total":       total,
+		"address_used": selectedAddr, // ✅ ส่ง address ที่ใช้กลับด้วย
 	})
 }
 
@@ -236,7 +287,7 @@ func MarkPromptPayOrderPaid(c *gin.Context) {
 	http.DefaultClient.Do(req)
 
 	db.OpenCollection("orders").UpdateByID(ctx, objID, bson.M{
-		"$set": bson.M{"status": "paid", "paid_at": time.Now()},
+		"$set": bson.M{"status": "pending", "paid_at": time.Now()},
 	})
 
 	// ✅ อัปเดต is_sold ให้สินค้าใน order

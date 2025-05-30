@@ -42,9 +42,10 @@ func SetupProductRoutes(r *gin.Engine) {
 	products := r.Group("/api/products")
 	{
 		products.GET("", controllers.GetAllProducts)
-		products.POST("", controllers.AddProduct)
+		products.POST("",middlewares.AuthMiddleware(), controllers.AddProduct)
+		products.GET("/my-products", middlewares.AuthMiddleware(), controllers.GetMyProducts)
 		products.GET("/:id", controllers.GetProductByID)
-		products.PUT("/:id", controllers.UpdateProduct)
+		products.PUT("/:id",middlewares.AuthMiddleware(), controllers.UpdateProduct)
 		products.DELETE("/:id", controllers.DeleteProduct)
 	}
 
@@ -89,17 +90,5 @@ func SetupReviewRoutes(r *gin.Engine) {
 	{
 		review.POST("/", middlewares.AuthMiddleware(), controllers.CreateReview)
 		review.GET("/seller/:sellerId", controllers.GetReviewsBySeller)
-	}
-}
-
-
-func SetupAdminRoutes(r *gin.Engine) {
-	admin := r.Group("/api/admin")
-	admin.Use(middlewares.AuthMiddleware(), middlewares.AdminOnly()) // ตรวจสอบ JWT + ตรวจ role = admin
-	{
-		admin.GET("/users", controllers.GetAllUsers)        // ✅ API ดึงข้อมูลผู้ใช้
-		admin.GET("/products", controllers.GetAllProducts)  // ✅ ใช้ร่วมกับ public
-		admin.GET("/orders", controllers.GetAllOrders)      // ✅ สร้างเพิ่มใน controllers
-		admin.GET("/reports", controllers.GetAllReports)    // ✅ สร้างเพิ่มใน controllers
 	}
 }
