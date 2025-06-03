@@ -13,7 +13,7 @@ func SetupAuthRoutes(r *gin.Engine) {
 	// Register ใหม่แบบ OTP
 	r.POST("/register/request-otp", controllers.RequestOTP) // ส่ง OTP ไปอีเมล
 	r.POST("/register/verify-otp", controllers.VerifyOTP)   // ยืนยัน OTP + สมัคร
-	r.GET("/search", controllers.SearchProducts)
+	// r.GET("/search", controllers.SearchProducts)
 	// ใช้ AuthMiddleware กับ routes ที่ต้องการให้ login ก่อน
 	userRoutes := r.Group("/api/user")
 	userRoutes.Use(middlewares.AuthMiddleware()) // ต้อง login ก่อน
@@ -47,21 +47,22 @@ func SetupProductRoutes(r *gin.Engine) {
 		products.GET("/:id", controllers.GetProductByID)
 		products.PUT("/:id",middlewares.AuthMiddleware(), controllers.UpdateProduct)
 		products.DELETE("/:id", controllers.DeleteProduct)
+		products.GET("/search", controllers.SearchProducts)
 	}
 
 }
 func SetupCartRoutes(r *gin.Engine) {
 	cart := r.Group("/api/cart", middlewares.AuthMiddleware())
 	{
-		cart.POST("/", controllers.AddToCart)                   // เพิ่มสินค้าลงตะกร้า
-		cart.GET("/", controllers.GetCart)                      //  ดูสินค้าทั้งหมดในตะกร้า
+		cart.POST("/add", controllers.AddToCart)                   // เพิ่มสินค้าลงตะกร้า
+		cart.GET("", controllers.GetCart)                      //  ดูสินค้าทั้งหมดในตะกร้า
 		cart.DELETE("/:product_id", controllers.RemoveFromCart) // ลบสินค้าออกจากตะกร้า
 	}
 }
 func SetupOrderRoutes(r *gin.Engine) {
 	order := r.Group("/api/orders", middlewares.AuthMiddleware())
 	{
-		order.GET("/", controllers.GetUserOrders)            //  ดูคำสั่งซื้อทั้งหมดของผู้ใช้
+		order.GET("", controllers.GetUserOrders)            //  ดูคำสั่งซื้อทั้งหมดของผู้ใช้
 		order.GET("/:id", controllers.GetOrderByID)
 		order.POST("/:id/confirm", controllers.ConfirmOrderDelivery)
 		order.PUT("/:id/tracking", controllers.UpdateTrackingNumber)
@@ -88,7 +89,18 @@ func CategoryRoutes(r *gin.Engine) {
 func SetupReviewRoutes(r *gin.Engine) {
 	review := r.Group("/api/reviews")
 	{
-		review.POST("/", middlewares.AuthMiddleware(), controllers.CreateReview)
+		review.POST("", middlewares.AuthMiddleware(), controllers.CreateReview)
 		review.GET("/seller/:sellerId", controllers.GetReviewsBySeller)
+		review.GET("/my-reviews", middlewares.AuthMiddleware(), controllers.GetMyReviews)
+	}
+}
+func SetupSellerRoutes(r *gin.Engine) {
+	seller := r.Group("/api/sellers")
+	{
+		//ดึงสินค้าทั้งหมดของผู้ขาย
+		seller.GET("/:seller_id/products", controllers.GetProductsBySeller)
+
+		//ดึงข้อมูลโปรไฟล์ผู้ขาย
+		seller.GET("/:seller_id", controllers.GetSellerInfo)
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/omise/omise-go/operations"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
 	"net/http"
 	"os"
 	"fmt"
@@ -175,3 +176,86 @@ func BecomeSeller(c *gin.Context) {
 		"recipient_id": recipient.ID,
 	})
 }
+func GetProductsBySeller(c *gin.Context) {
+    sellerID := c.Param("seller_id")
+    objID, err := primitive.ObjectIDFromHex(sellerID)
+    if err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid seller ID"})
+        return
+    }
+
+    var products []models.Product
+    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+    defer cancel()
+
+    cursor, err := db.ProductCollection.Find(ctx, bson.M{"seller_id": objID})
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get products"})
+        return
+    }
+    if err := cursor.All(ctx, &products); err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse products"})
+        return
+    }
+
+    c.JSON(http.StatusOK, products)
+}
+func GetSellerInfo(c *gin.Context) {
+	sellerID := c.Param("seller_id")
+	objID, err := primitive.ObjectIDFromHex(sellerID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid seller ID"})
+		return
+	}
+
+	var seller models.User
+	err = db.UserCollection.FindOne(context.TODO(), bson.M{"_id": objID}).Decode(&seller)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Seller not found"})
+		return
+	}
+
+	// คำนวณค่าเฉลี่ย Rating จาก ReviewCollection
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	pipeline := mongo.Pipeline{
+		{{Key: "$match", Value: bson.M{"seller_id": objID}}},
+		{{Key: "$group", Value: bson.M{
+			"_id":   "$seller_id",
+			"avg":   bson.M{"$avg": "$rating"},
+			"count": bson.M{"$sum": 1},
+		}}},
+	}
+
+	cursor, err := db.ReviewCollection.Aggregate(ctx, pipeline)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to aggregate reviews"})
+		return
+	}
+	var result []bson.M
+	if err = cursor.All(ctx, &result); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse review results"})
+		return
+	}
+
+	avgRating := 0.0
+	if len(result) > 0 {
+		if avg, ok := result[0]["avg"].(float64); ok {
+			avgRating = avg
+		}
+	}
+
+	// ส่งกลับ JSON
+	c.JSON(http.StatusOK, gin.H{
+		"id":           seller.ID.Hex(),
+		"username":     seller.Username,
+		"phonenumber":  seller.Phonenumber,
+		"gmail":        seller.Gmail,
+		"profileImage": seller.ProfileImage,
+		"isSeller":     seller.IsSeller,
+		"sellerInfo":   seller.SellerInfo,
+		"rating":       avgRating,
+	})
+}
+

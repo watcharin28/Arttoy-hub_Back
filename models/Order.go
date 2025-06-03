@@ -15,7 +15,7 @@ type OrderItem struct {
 	SellerID  primitive.ObjectID `json:"seller_id" bson:"seller_id"`
 	Price     float64            `json:"price" bson:"price"`
 	Quantity  int                `bson:"quantity" json:"quantity"`
-	Item      *Product           `json:"item,omitempty" bson:"-"` //  เพิ่มตรงนี้
+	Item      *Product           `json:"item,omitempty" bson:"-"` 
 }
 
 type Order struct {
@@ -23,6 +23,8 @@ type Order struct {
 	UserID          primitive.ObjectID `json:"user_id" bson:"user_id"`
 	Items           []OrderItem        `json:"items" bson:"items"`
 	Total           float64            `json:"total" bson:"total"`
+	ShippingFee     float64            `json:"shipping_fee" bson:"shipping_fee"`       
+	GrandTotal      float64            `json:"grand_total" bson:"grand_total"`
 	ChargeID        string             `json:"charge_id,omitempty" bson:"charge_id,omitempty"`
 	TransferID      string             `json:"transfer_id,omitempty" bson:"transfer_id,omitempty"`
 	Status          string             `json:"status" bson:"status"`

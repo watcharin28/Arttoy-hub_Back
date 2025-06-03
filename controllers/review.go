@@ -117,3 +117,25 @@ func GetReviewsBySeller(c *gin.Context) {
 
     c.JSON(http.StatusOK, reviews)
 }
+
+func GetMyReviews(c *gin.Context) {
+	userID := c.GetString("user_id")
+	userObjID, _ := primitive.ObjectIDFromHex(userID)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cursor, err := db.OpenCollection("reviews").Find(ctx, bson.M{"user_id": userObjID})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch reviews"})
+		return
+	}
+
+	var reviews []models.Review
+	if err := cursor.All(ctx, &reviews); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse reviews"})
+		return
+	}
+
+	c.JSON(http.StatusOK, reviews)
+}

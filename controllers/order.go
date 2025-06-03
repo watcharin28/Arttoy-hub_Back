@@ -119,7 +119,7 @@ func CreatePromptPayCustomOrder(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// ตรวจสอบว่ามีออเดอร์ที่ยังไม่จ่ายอยู่หรือไม่
+	// ตรวจสอบออเดอร์ที่ยังไม่จ่าย
 	var existing models.Order
 	err = db.OpenCollection("orders").FindOne(ctx, bson.M{
 		"user_id": userObjID,
@@ -136,7 +136,7 @@ func CreatePromptPayCustomOrder(c *gin.Context) {
 		return
 	}
 
-	// รับข้อมูลจากผู้ใช้: แก้โครงสร้างให้รับ id + quantity
+	// รับข้อมูลจากผู้ใช้
 	var input struct {
 		Items []struct {
 			ID       string `json:"id"`
@@ -149,7 +149,7 @@ func CreatePromptPayCustomOrder(c *gin.Context) {
 		return
 	}
 
-	// ดึงที่อยู่จาก user
+	// ดึงที่อยู่
 	var user models.User
 	if err := db.OpenCollection("users").FindOne(ctx, bson.M{"_id": userObjID}).Decode(&user); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
@@ -186,7 +186,7 @@ func CreatePromptPayCustomOrder(c *gin.Context) {
 		}
 	}
 
-	// รวมรายการสินค้าและคำนวณราคา
+	// รวมรายการสินค้าและราคารวมสินค้า
 	var orderItems []models.OrderItem
 	var total float64
 
@@ -219,9 +219,13 @@ func CreatePromptPayCustomOrder(c *gin.Context) {
 		total += product.Price * float64(qty)
 	}
 
-	// สร้าง QR กับ Omise (เหมือนเดิม)
+	// ✅ เพิ่มค่าส่งและยอดรวมทั้งหมด
+	shippingFee := 40.0
+	grandTotal := total + shippingFee
+
+	// สร้าง QR กับ Omise
 	payload := map[string]interface{}{
-		"amount":   int(total * 100),
+		"amount":   int(grandTotal * 100),
 		"currency": "thb",
 		"type":     "promptpay",
 	}
@@ -241,6 +245,7 @@ func CreatePromptPayCustomOrder(c *gin.Context) {
 	body, _ := ioutil.ReadAll(resp.Body)
 	var qr QRSourceResponse
 	json.Unmarshal(body, &qr)
+
 	client, err := omise.NewClient(os.Getenv("OMISE_PUBLIC_KEY"), os.Getenv("OMISE_SECRET_KEY"))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Omise client init failed"})
@@ -248,48 +253,54 @@ func CreatePromptPayCustomOrder(c *gin.Context) {
 	}
 
 	chargeOp := &operations.CreateCharge{
-		Amount:   int64(total * 100),
+		Amount:   int64(grandTotal * 100),
 		Currency: "thb",
 		Source:   qr.ID,
 	}
 
-	// สร้างตัวแปรไว้เก็บข้อมูล charge
 	var charge omise.Charge
 	if err := client.Do(&charge, chargeOp); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Create charge failed: " + err.Error()})
 		return
 	}
-	// สร้างคำสั่งซื้อ
+
+	// ✅ สร้างคำสั่งซื้อ
 	order := models.Order{
-		UserID:    userObjID,
-		Items:     orderItems,
-		Total:     total,
-		Status:    "waiting_payment",
-		SourceID:  qr.ID,
-		ChargeID:  charge.ID,
-		CreatedAt: time.Now(),
+		UserID:      userObjID,
+		Items:       orderItems,
+		Total:       total,
+		ShippingFee: shippingFee,
+		GrandTotal:  grandTotal,
+		Status:      "waiting_payment",
+		SourceID:    qr.ID,
+		ChargeID:    charge.ID,
+		CreatedAt:   time.Now(),
 	}
+
 	newOrder, err := models.CreateOrder(order)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Create order failed"})
 		return
 	}
 
-	// ส่ง QR กลับ
 	qrImage := qr.ScannableCode.Image.URI
 	if qrImage == "" {
 		qrImage = "https://cdn.omise.co/scannable_code/test_qr.png"
 	}
 
+	// ✅ ส่ง response กลับ
 	c.JSON(http.StatusOK, gin.H{
 		"order_id":     newOrder.ID.Hex(),
 		"qr_image":     qrImage,
 		"source_id":    qr.ID,
 		"charge_id":    charge.ID,
 		"total":        total,
-		"address_used": selectedAddr, // ส่งที่อยู่ที่ใช้กลับ
+		"shipping_fee": shippingFee,
+		"grand_total":  grandTotal,
+		"address_used": selectedAddr,
 	})
 }
+
 
 // ม็อคว่า “จ่ายแล้ว” (เฉพาะ test mode)
 func MarkPromptPayOrderPaid(c *gin.Context) {
