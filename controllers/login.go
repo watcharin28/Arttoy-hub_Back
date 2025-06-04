@@ -69,7 +69,7 @@ func Login(c *gin.Context) {
         Name:     "token",
         Value:    token,
         Path:     "/",
-        Domain:   "arttoy-hub-back.onrender.com", // ต้องตรงกับ backend
+        Domain:   "", // ต้องตรงกับ backend
         MaxAge:   3600 * 24,                      // 1 วัน
         Secure:   true,                           // HTTPS เท่านั้น
         HttpOnly: true,
