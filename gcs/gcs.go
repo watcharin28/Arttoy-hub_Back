@@ -38,6 +38,27 @@ func  InitGCS(credentialJSON string) error {
 	log.Printf("เชื่อมต่อ GCS bucket %s สำเร็จ", bucketName)
 	return nil
 }
+// ฟังก์ชันใหม่ InitGCSFromFile ใช้ไฟล์ credential จริง
+func InitGCSFromFile(credentialPath string) error {
+	ctx := context.Background()
+	c, err := storage.NewClient(ctx, option.WithCredentialsFile(credentialPath))
+	if err != nil {
+		return fmt.Errorf("ไม่สามารถเชื่อมต่อ Google Cloud Storage: %v", err)
+	}
+	Client = c
+
+	bucketName := os.Getenv("GCS_BUCKET_NAME")
+	if bucketName == "" {
+		return fmt.Errorf("GCS_BUCKET_NAME ไม่ได้ตั้งค่าใน environment")
+	}
+	_, err = Client.Bucket(bucketName).Attrs(ctx)
+	if err != nil {
+		return fmt.Errorf("ไม่สามารถเข้าถึง bucket %s: %v", bucketName, err)
+	}
+
+	log.Printf("เชื่อมต่อ GCS bucket %s สำเร็จ", bucketName)
+	return nil
+}
 
 func Close() {
 	if Client != nil {

@@ -12,24 +12,27 @@ import (
 	"os"
 )
 
+
 func main() {
-	// โหลดค่า Credential JSON จาก environment (Render จะใส่ให้ใน Settings)
+	// โหลดค่า .env เฉพาะตอนพัฒนา local
 	if _, err := os.Stat(".env"); err == nil {
 		log.Println(" Loading .env for local development")
 		_ = godotenv.Load()
 	}
-	credentialJson := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON")
-	if credentialJson == "" {
-		log.Fatal("GOOGLE_APPLICATION_CREDENTIALS_JSON is missing in environment")
+
+	// อ่าน path ไฟล์ credential จริงจาก env
+	credentialPath := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
+	if credentialPath == "" {
+		log.Fatal("GOOGLE_APPLICATION_CREDENTIALS env variable is missing")
 	}
 
-	// Init GCS โดยส่ง credential JSON เข้าไป
-	if err := gcs. InitGCS(credentialJson); err != nil {
+	// เรียก InitGCSFromFile แทน
+	if err := gcs.InitGCSFromFile(credentialPath); err != nil {
 		log.Fatalf("ไม่สามารถเชื่อมต่อ Google Cloud Storage: %v", err)
 	}
 	defer gcs.Close()
 
-	// เริ่ม MongoDB
+	// เริ่มเชื่อมต่อ MongoDB
 	db.InitDB()
 	defer db.DisconnectDB()
 
