@@ -12,6 +12,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"os"
 	"time"
@@ -51,6 +52,9 @@ func GetSellerOrders(c *gin.Context) {
 			"$elemMatch": bson.M{
 				"seller_id": sellerObjID,
 			},
+		},
+		"status": bson.M{
+			"$in": []string{"pending", "shipping", "processing", "completed"}, // ✅ เฉพาะสถานะที่ต้องแสดง
 		},
 	})
 	if err != nil {
@@ -275,6 +279,7 @@ func CreatePromptPayCustomOrder(c *gin.Context) {
 		SourceID:    qr.ID,
 		ChargeID:    charge.ID,
 		CreatedAt:   time.Now(),
+		ExpiredAt:   time.Now().Add(1 * time.Minute),
 	}
 
 	newOrder, err := models.CreateOrder(order)
@@ -301,7 +306,6 @@ func CreatePromptPayCustomOrder(c *gin.Context) {
 	})
 }
 
-
 // ม็อคว่า “จ่ายแล้ว” (เฉพาะ test mode)
 func MarkPromptPayOrderPaid(c *gin.Context) {
 	orderID := c.Param("id")
@@ -317,21 +321,32 @@ func MarkPromptPayOrderPaid(c *gin.Context) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Unauthorized"})
 		return
 	}
+
 	if order.Status != "waiting_payment" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Order not in waiting_payment state"})
 		return
 	}
 
-	http.NewRequest("POST", "https://api.omise.co/sources/"+order.SourceID+"/mark_as_paid", nil)
+	// ✅ ตรวจสอบว่า order หมดอายุหรือยัง
+	if time.Now().After(order.ExpiredAt) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "This order has expired"})
+		return
+	}
+
+	// ✅ แจ้ง Omise (mocked, ไม่มี check response)
 	req, _ := http.NewRequest("POST", "https://api.omise.co/sources/"+order.SourceID+"/mark_as_paid", nil)
 	req.SetBasicAuth(os.Getenv("OMISE_SECRET_KEY"), "")
 	http.DefaultClient.Do(req)
 
+	// ✅ อัปเดต order เป็น paid/pending
 	db.OpenCollection("orders").UpdateByID(ctx, objID, bson.M{
-		"$set": bson.M{"status": "pending", "paid_at": time.Now()},
+		"$set": bson.M{
+			"status":  "pending",
+			"paid_at": time.Now(),
+		},
 	})
 
-	// ✅ อัปเดต is_sold ให้สินค้าใน order
+	// ✅ ตั้ง is_sold ให้สินค้าใน order
 	for _, item := range order.Items {
 		db.OpenCollection("products").UpdateByID(ctx, item.ProductID, bson.M{
 			"$set": bson.M{"is_sold": true},
@@ -339,4 +354,21 @@ func MarkPromptPayOrderPaid(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Order marked as paid"})
+}
+func DeleteExpiredOrders() {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	filter := bson.M{
+		"status":     "waiting_payment",
+		"expired_at": bson.M{"$lt": time.Now()},
+	}
+
+	result, err := db.OpenCollection("orders").DeleteMany(ctx, filter)
+	if err != nil {
+		log.Printf("❌ Failed to delete expired orders: %v", err)
+		return
+	}
+
+	log.Printf("✅ Deleted %v expired orders", result.DeletedCount)
 }

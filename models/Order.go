@@ -34,6 +34,7 @@ type Order struct {
 	CreatedAt       time.Time          `json:"created_at" bson:"created_at"`
 	SourceID        string             `json:"source_id,omitempty" bson:"source_id,omitempty"`
 	PaidAt          time.Time          `json:"paid_at,omitempty" bson:"paid_at,omitempty"`
+	ExpiredAt   time.Time          `bson:"expired_at" json:"expired_at"`
 }
 
 func CreateOrder(order Order) (Order, error) {
