@@ -14,10 +14,10 @@ import (
 
 func main() {
 	// โหลดค่า Credential JSON จาก environment (Render จะใส่ให้ใน Settings)
-	err := godotenv.Load()
-    if err != nil {
-        log.Fatal("Error loading .env file")
-    }
+	if _, err := os.Stat(".env"); err == nil {
+		log.Println(" Loading .env for local development")
+		_ = godotenv.Load()
+	}
 	credentialJson := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON")
 	if credentialJson == "" {
 		log.Fatal("GOOGLE_APPLICATION_CREDENTIALS_JSON is missing in environment")
