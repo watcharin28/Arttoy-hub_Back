@@ -65,9 +65,20 @@ func Login(c *gin.Context) {
         return
     }
     // ตั้งค่า cookie
-    c.SetCookie("token", token, 3600*24, "/", "arttoy-hub-back.onrender.com", true, true)
-    
-    // c.Writer.Header().Set("Set-Cookie", fmt.Sprintf("token=%s; SameSite=None; Path=/;", token)) // ลบ HttpOnly ออก
+    http.SetCookie(c.Writer, &http.Cookie{
+        Name:     "token",
+        Value:    token,
+        Path:     "/",
+        Domain:   "arttoy-hub-back.onrender.com", // ต้องตรงกับ backend
+        MaxAge:   3600 * 24,                      // 1 วัน
+        Secure:   true,                           // HTTPS เท่านั้น
+        HttpOnly: true,
+        SameSite: http.SameSiteNoneMode,          // ← สำคัญ!
+    })
+
     c.JSON(http.StatusOK, gin.H{"message": "Login successful"})
 }
+// c.Writer.Header().Set("Set-Cookie", fmt.Sprintf("token=%s; SameSite=None; Path=/;", token)) // ลบ HttpOnly ออก
+    
+
 
