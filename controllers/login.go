@@ -65,7 +65,7 @@ func Login(c *gin.Context) {
         return
     }
     // ตั้งค่า cookie
-    c.SetCookie("token", token, 3600*24, "/", "", false, true)
+    c.SetCookie("token", token, 3600*24, "/", "", true, true)
     // c.Writer.Header().Set("Set-Cookie", fmt.Sprintf("token=%s; SameSite=Lax; Path=/; HttpOnly", token))
     c.Writer.Header().Set("Set-Cookie", fmt.Sprintf("token=%s; SameSite=Lax; Path=/;", token)) // ลบ HttpOnly ออก
     c.JSON(http.StatusOK, gin.H{"message": "Login successful"})
