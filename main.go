@@ -6,46 +6,44 @@ import (
 	"arttoy-hub/gcs"
 	"arttoy-hub/routes"
 	"github.com/gin-gonic/gin"
-	"github.com/joho/godotenv"
 	"github.com/robfig/cron/v3"
+	"github.com/joho/godotenv"
 	"log"
 	"os"
-	
 )
 
 func main() {
-	// โหลดไฟล์ .env
+	// โหลดค่า Credential JSON จาก environment (Render จะใส่ให้ใน Settings)
 	err := godotenv.Load()
-	if err != nil {
-		log.Println("Warning Error loading .env file:", err)
+    if err != nil {
+        log.Fatal("Error loading .env file")
+    }
+	credentialJson := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON")
+	if credentialJson == "" {
+		log.Fatal("GOOGLE_APPLICATION_CREDENTIALS_JSON is missing in environment")
 	}
-	// ตรวจสอบ GOOGLE_APPLICATION_CREDENTIALS
-	gcpCredentials := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
-	if gcpCredentials == "" {
-		log.Fatal("GOOGLE_APPLICATION_CREDENTIALS ไม่ได้ถูกตั้งค่าใน .env")
-	}
-	gcs.InitGCS()
-	defer gcs.Close()
-	log.Printf("GOOGLE_APPLICATION_CREDENTIALS: %s", gcpCredentials)
-	// เริ่มต้นการเชื่อมต่อ MongoDB
-	db.InitDB()
-	defer db.DisconnectDB() // ยกเลิกการเชื่อมต่อเมื่อโปรแกรมจบ
 
-	// ส่ง MongoDB client ไปยัง controllers
+	// Init GCS โดยส่ง credential JSON เข้าไป
+	if err := gcs. InitGCS(credentialJson); err != nil {
+		log.Fatalf("ไม่สามารถเชื่อมต่อ Google Cloud Storage: %v", err)
+	}
+	defer gcs.Close()
+
+	// เริ่ม MongoDB
+	db.InitDB()
+	defer db.DisconnectDB()
+
 	controllers.InitMongo(db.Client)
 
-	// ตั้งค่า Gin router
+	// ตั้งค่า router
 	r := gin.Default()
-
-	// เรียก routes
 	routes.SetupRoutes(r)
-
-	// เริ่มเซิร์ฟเวอร์
 
 	log.Println("Starting server on :8080")
 	c := cron.New()
-	c.AddFunc("@every 1m", controllers.DeleteExpiredOrders) // ลบทุก 5 นาที
+	c.AddFunc("@every 1m", controllers.DeleteExpiredOrders)
 	c.Start()
+
 	if err := r.Run(":8080"); err != nil {
 		log.Fatal("Failed to start server:", err)
 	}
