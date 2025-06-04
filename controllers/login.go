@@ -72,7 +72,7 @@ func Login(c *gin.Context) {
         Domain:   "", // ต้องตรงกับ backend
         MaxAge:   3600 * 24,                      // 1 วัน
         Secure:   true,                           // HTTPS เท่านั้น
-        HttpOnly: false,
+        HttpOnly: true,
         SameSite: http.SameSiteNoneMode,          // ← สำคัญ!
     })
 
