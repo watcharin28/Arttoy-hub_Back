@@ -9,7 +9,7 @@ import (
 func SetupRoutes(r *gin.Engine) {
 	// CORS Middleware
 	r.Use(cors.New(cors.Config{
-        AllowOrigins:     []string{"https://glistening-manatee-66a30b.netlify.app","http://localhost:5173",}, // ตั้งค่า origin ที่จะอนุญาต
+        AllowOrigins:     []string{"http://localhost:5173"}, // ตั้งค่า origin ที่จะอนุญาต
         // AllowOrigins:     []string{"http://localhost:5173"},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}, // method ที่อนุญาต
         AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "Cookie"}, // headers ที่อนุญาต

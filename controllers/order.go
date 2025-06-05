@@ -278,6 +278,7 @@ func CreatePromptPayCustomOrder(c *gin.Context) {
 		Status:      "waiting_payment",
 		SourceID:    qr.ID,
 		ChargeID:    charge.ID,
+		ShippingAddress: *selectedAddr,
 		CreatedAt:   time.Now(),
 		ExpiredAt:   time.Now().Add(1 * time.Minute),
 	}

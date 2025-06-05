@@ -49,7 +49,10 @@ func GetCartDetailsForUser(userID primitive.ObjectID) ([]CartItemWithProduct, er
 
 	// 3. ดึงรายละเอียดสินค้าทั้งหมด
 	var products []Product
-	cursor2, err := db.OpenCollection("products").Find(ctx, bson.M{"_id": bson.M{"$in": productIDs}})
+	cursor2, err := db.OpenCollection("products").Find(ctx, bson.M{
+		"_id":     bson.M{"$in": productIDs},
+		"is_sold": false,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +91,7 @@ func GetCartDetailsForUser(userID primitive.ObjectID) ([]CartItemWithProduct, er
 				Price:      p.Price,
 				Quantity:   item.Quantity,
 				AddedAt:    item.AddedAt,
-				SellerName: sellerName, 
+				SellerName: sellerName,
 			})
 		}
 	}

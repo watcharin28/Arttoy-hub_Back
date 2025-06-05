@@ -4,7 +4,6 @@ package models
 import (
 	"context"
 	"time"
-
 	"arttoy-hub/database"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -30,11 +29,12 @@ type Order struct {
 	Status          string             `json:"status" bson:"status"`
 	TrackingNumber  string             `json:"tracking_number,omitempty" bson:"tracking_number,omitempty"`
 	SenderName      string             `json:"sender_name,omitempty" bson:"sender_name,omitempty"`
-	ShippingAddress string             `json:"shipping_address,omitempty" bson:"shipping_address,omitempty"`
+	ShippingAddress Address `bson:"shipping_address" json:"shippingAddress"`
 	CreatedAt       time.Time          `json:"created_at" bson:"created_at"`
 	SourceID        string             `json:"source_id,omitempty" bson:"source_id,omitempty"`
 	PaidAt          time.Time          `json:"paid_at,omitempty" bson:"paid_at,omitempty"`
 	ExpiredAt   time.Time          `bson:"expired_at" json:"expired_at"`
+	
 }
 
 func CreateOrder(order Order) (Order, error) {

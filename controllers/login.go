@@ -11,7 +11,7 @@ import (
     "go.mongodb.org/mongo-driver/mongo"
     "golang.org/x/crypto/bcrypt"
     "github.com/golang-jwt/jwt/v4"
-    // "fmt"
+    "fmt"
 )
 var collection *mongo.Collection
 var jwtSecret = []byte(os.Getenv("JWT_SECRET"))
@@ -65,18 +65,9 @@ func Login(c *gin.Context) {
         return
     }
     // ตั้งค่า cookie
-    http.SetCookie(c.Writer, &http.Cookie{
-        Name:     "token",
-        Value:    token,
-        Path:     "/",
-        Domain:   "", // ต้องตรงกับ backend
-        MaxAge:   3600 * 24,                      // 1 วัน
-        Secure:   true,                           // HTTPS เท่านั้น
-        HttpOnly: true,
-        SameSite: http.SameSiteNoneMode,          // ← สำคัญ!
-    })
-
-    c.JSON(http.StatusOK, gin.H{"message": "Login successful"})
+    c.SetCookie("token", token, 3600*24, "/", "", false, true)
+    // c.Writer.Header().Set("Set-Cookie", fmt.Sprintf("token=%s; SameSite=Lax; Path=/; HttpOnly", token))
+    c.Writer.Header().Set("Set-Cookie", fmt.Sprintf("token=%s; SameSite=Lax; Path=/;", token)) // ลบ HttpOnly ออก
 }
 // c.Writer.Header().Set("Set-Cookie", fmt.Sprintf("token=%s; SameSite=None; Path=/;", token)) // ลบ HttpOnly ออก
     
