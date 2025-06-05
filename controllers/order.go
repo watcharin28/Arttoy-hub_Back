@@ -113,199 +113,258 @@ type QRSourceResponse struct {
 
 // สร้าง QR PromptPay Order
 func CreatePromptPayCustomOrder(c *gin.Context) {
-	userID := c.GetString("user_id")
-	userObjID, err := primitive.ObjectIDFromHex(userID)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
-		return
-	}
+    // 1) ตรวจสอบว่าเข้ามาที่ Handler จริงหรือไม่
+    log.Println("⚡️ Enter CreatePromptPayCustomOrder")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+    // 2) ดึง user_id จาก context (JWT middleware ต้อง set ให้ถูกจังหวะ)
+    userID := c.GetString("user_id")
+    log.Printf("🔑 user_id from context: '%s'\n", userID)
+    if userID == "" {
+        c.JSON(http.StatusUnauthorized, gin.H{"error": "User not logged in"})
+        return
+    }
 
-	// ตรวจสอบออเดอร์ที่ยังไม่จ่าย
-	var existing models.Order
-	err = db.OpenCollection("orders").FindOne(ctx, bson.M{
-		"user_id": userObjID,
-		"status":  bson.M{"$in": []string{"unpaid", "waiting_payment"}},
-	}).Decode(&existing)
+    userObjID, err := primitive.ObjectIDFromHex(userID)
+    if err != nil {
+        log.Printf("❌ Invalid user ID (cannot convert to ObjectID): %v\n", err)
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+        return
+    }
 
-	if err == nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":    "You already have an unpaid order",
-			"order_id": existing.ID.Hex(),
-			"total":    existing.Total,
-			"status":   existing.Status,
-		})
-		return
-	}
+    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+    defer cancel()
 
-	// รับข้อมูลจากผู้ใช้
-	var input struct {
-		Items []struct {
-			ID       string `json:"id"`
-			Quantity int    `json:"quantity"`
-		} `json:"items"`
-		AddressID string `json:"address_id"`
-	}
-	if err := c.ShouldBindJSON(&input); err != nil || len(input.Items) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input"})
-		return
-	}
+    // 3) เช็กว่า user ยังไม่มีออเดอร์ค้างในสถานะ unpaid|waiting_payment
+    var existing models.Order
+    err = db.OpenCollection("orders").FindOne(ctx, bson.M{
+        "user_id": userObjID,
+        "status":  bson.M{"$in": []string{"unpaid", "waiting_payment"}},
+    }).Decode(&existing)
 
-	// ดึงที่อยู่
-	var user models.User
-	if err := db.OpenCollection("users").FindOne(ctx, bson.M{"_id": userObjID}).Decode(&user); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
-		return
-	}
+    if err == nil {
+        log.Printf("⚠️ Found existing unpaid order: ID=%s, Total=%.2f, Status=%s\n",
+            existing.ID.Hex(), existing.Total, existing.Status)
+        c.JSON(http.StatusBadRequest, gin.H{
+            "error":    "You already have an unpaid order",
+            "order_id": existing.ID.Hex(),
+            "total":    existing.Total,
+            "status":   existing.Status,
+        })
+        return
+    }
 
-	var selectedAddr *models.Address
-	if input.AddressID != "" {
-		addrID, err := primitive.ObjectIDFromHex(input.AddressID)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid address ID"})
-			return
-		}
-		for _, addr := range user.Addresses {
-			if addr.ID == addrID {
-				selectedAddr = &addr
-				break
-			}
-		}
-		if selectedAddr == nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Address not found"})
-			return
-		}
-	} else {
-		for _, addr := range user.Addresses {
-			if addr.IsDefault {
-				selectedAddr = &addr
-				break
-			}
-		}
-		if selectedAddr == nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "No default address set"})
-			return
-		}
-	}
+    // 4) รับ JSON จากผู้ใช้ (Bind เพื่อ map เข้า struct)
+    var input struct {
+        Items []struct {
+            ID       string `json:"id"`       // ต้องตรงกับชื่อ key ในฝั่ง React
+            Quantity int    `json:"quantity"` // ต้องตรงกับชื่อ key ในฝั่ง React
+        } `json:"items"`
+        AddressID string `json:"address_id"`
+    }
+    if err := c.ShouldBindJSON(&input); err != nil {
+        // ถ้า BindJSON ผิดพลาด ให้พิมพ์ raw body ว่าไปถึง backend จริง ๆ ว่ามีอะไรมา
+        raw, _ := ioutil.ReadAll(c.Request.Body)
+        log.Printf("❌ BindJSON Error: %v\n", err)
+        log.Printf("👉 Raw request body: %s\n", string(raw))
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input format", "detail": err.Error()})
+        return
+    }
 
-	// รวมรายการสินค้าและราคารวมสินค้า
-	var orderItems []models.OrderItem
-	var total float64
+    // ถ้า BindJSON ผ่าน แต่ไม่มี items เลย => error
+    if len(input.Items) == 0 {
+        log.Println("❌ No items provided in input") 
+        c.JSON(http.StatusBadRequest, gin.H{"error": "No items provided"})
+        return
+    }
 
-	for _, item := range input.Items {
-		productObjID, err := primitive.ObjectIDFromHex(item.ID)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid product ID"})
-			return
-		}
+    // 5) พิมพ์ข้อมูลที่ Bind มาได้ ว่ามี items ไหนบ้าง และ address_id อะไร
+    log.Printf("✅ Bound input.AddressID = %s\n", input.AddressID)
+    for idx, it := range input.Items {
+        log.Printf("    item[%d] => ID: %s, Quantity: %d\n", idx, it.ID, it.Quantity)
+    }
 
-		var product models.Product
-		err = db.OpenCollection("products").FindOne(ctx, bson.M{"_id": productObjID}).Decode(&product)
-		if err != nil || product.IsSold {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Product not available or already sold"})
-			return
-		}
+    // 6) ดึงข้อมูล user จากฐานข้อมูล เพื่อไปหา address ต่อ
+    var user models.User
+    if err := db.OpenCollection("users").FindOne(ctx, bson.M{"_id": userObjID}).Decode(&user); err != nil {
+        log.Printf("❌ User not found in DB: %v\n", err)
+        c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+        return
+    }
 
-		qty := item.Quantity
-		if qty <= 0 {
-			qty = 1
-		}
+    // 7) หา selectedAddr จาก input.AddressID หรือ default
+    var selectedAddr *models.Address
+    if input.AddressID != "" {
+        addrID, err := primitive.ObjectIDFromHex(input.AddressID)
+        if err != nil {
+            log.Printf("❌ Invalid address ID: %v\n", err)
+            c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid address ID"})
+            return
+        }
+        for _, addr := range user.Addresses {
+            if addr.ID == addrID {
+                selectedAddr = &addr
+                break
+            }
+        }
+        if selectedAddr == nil {
+            log.Println("❌ Address not found in user's address list")
+            c.JSON(http.StatusBadRequest, gin.H{"error": "Address not found"})
+            return
+        }
+    } else {
+        for _, addr := range user.Addresses {
+            if addr.IsDefault {
+                selectedAddr = &addr
+                break
+            }
+        }
+        if selectedAddr == nil {
+            log.Println("❌ No default address set for user")
+            c.JSON(http.StatusBadRequest, gin.H{"error": "No default address set"})
+            return
+        }
+    }
 
-		orderItems = append(orderItems, models.OrderItem{
-			ProductID: product.ID,
-			SellerID:  product.SellerID,
-			Price:     product.Price,
-			Quantity:  qty,
-		})
+    // 8) คำนวณรวมราคาสินค้า และตรวจเช็กว่าแต่ละ product ยังไม่ถูกขาย
+    var orderItems []models.OrderItem
+    var total float64
+    for _, item := range input.Items {
+        productObjID, err := primitive.ObjectIDFromHex(item.ID)
+        if err != nil {
+            log.Printf("❌ Invalid product ID: %s, error: %v\n", item.ID, err)
+            c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid product ID: " + item.ID})
+            return
+        }
 
-		total += product.Price * float64(qty)
-	}
+        var product models.Product
+        err = db.OpenCollection("products").FindOne(ctx, bson.M{"_id": productObjID}).Decode(&product)
+        if err != nil {
+            log.Printf("❌ Product not found: %s, error: %v\n", item.ID, err)
+            c.JSON(http.StatusBadRequest, gin.H{"error": "Product not found: " + item.ID})
+            return
+        }
+        if product.IsSold {
+            log.Printf("❌ Product already sold: %s\n", item.ID)
+            c.JSON(http.StatusBadRequest, gin.H{"error": "Product already sold: " + item.ID})
+            return
+        }
 
-	// ✅ เพิ่มค่าส่งและยอดรวมทั้งหมด
-	shippingFee := 40.0
-	grandTotal := total + shippingFee
+        qty := item.Quantity
+        if qty <= 0 {
+            qty = 1
+        }
 
-	// สร้าง QR กับ Omise
-	payload := map[string]interface{}{
-		"amount":   int(grandTotal * 100),
-		"currency": "thb",
-		"type":     "promptpay",
-	}
-	bodyBytes, _ := json.Marshal(payload)
+        orderItems = append(orderItems, models.OrderItem{
+            ProductID: product.ID,
+            SellerID:  product.SellerID,
+            Price:     product.Price,
+            Quantity:  qty,
+        })
+        total += product.Price * float64(qty)
+    }
 
-	req, _ := http.NewRequest("POST", "https://api.omise.co/sources", bytes.NewBuffer(bodyBytes))
-	req.SetBasicAuth(os.Getenv("OMISE_PUBLIC_KEY"), "")
-	req.Header.Set("Content-Type", "application/json")
+    // 9) กำหนดค่าส่งและคำนวณ GrandTotal
+    shippingFee := 40.0
+    grandTotal := total + shippingFee
 
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil || resp.StatusCode != http.StatusOK {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Create QR failed"})
-		return
-	}
-	defer resp.Body.Close()
+    // 10) สร้าง QR PromptPay กับ Omise (Create Source)
+    payload := map[string]interface{}{
+        "amount":   int(grandTotal * 100),
+        "currency": "thb",
+        "type":     "promptpay",
+    }
+    bodyBytes, _ := json.Marshal(payload)
+    reqOmise, _ := http.NewRequest("POST", "https://api.omise.co/sources", bytes.NewBuffer(bodyBytes))
+    reqOmise.SetBasicAuth(os.Getenv("OMISE_PUBLIC_KEY"), "")
+    reqOmise.Header.Set("Content-Type", "application/json")
 
-	body, _ := ioutil.ReadAll(resp.Body)
-	var qr QRSourceResponse
-	json.Unmarshal(body, &qr)
+    respOmise, err := http.DefaultClient.Do(reqOmise)
+    if err != nil {
+        log.Printf("❌ Omise Create Source request failed: %v\n", err)
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create QR source"})
+        return
+    }
+    defer respOmise.Body.Close()
+    if respOmise.StatusCode != http.StatusOK {
+        rawBody, _ := ioutil.ReadAll(respOmise.Body)
+        log.Printf("❌ Omise Create Source returned status %d: %s\n", respOmise.StatusCode, string(rawBody))
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Omise Create Source failed"})
+        return
+    }
 
-	client, err := omise.NewClient(os.Getenv("OMISE_PUBLIC_KEY"), os.Getenv("OMISE_SECRET_KEY"))
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Omise client init failed"})
-		return
-	}
+    var qr QRSourceResponse
+    respBytes, _ := ioutil.ReadAll(respOmise.Body)
+    if err := json.Unmarshal(respBytes, &qr); err != nil {
+        log.Printf("❌ Failed to unmarshal QR response: %v\n", err)
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse QR response"})
+        return
+    }
+    log.Printf("✅ QR Source ID = %s\n", qr.ID)
 
-	chargeOp := &operations.CreateCharge{
-		Amount:   int64(grandTotal * 100),
-		Currency: "thb",
-		Source:   qr.ID,
-	}
+    // 11) สร้าง Charge กับ Omise (Create Charge)
+    client, err := omise.NewClient(os.Getenv("OMISE_PUBLIC_KEY"), os.Getenv("OMISE_SECRET_KEY"))
+    if err != nil {
+        log.Printf("❌ Omise client init failed: %v\n", err)
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Omise client init failed"})
+        return
+    }
 
-	var charge omise.Charge
-	if err := client.Do(&charge, chargeOp); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Create charge failed: " + err.Error()})
-		return
-	}
+    chargeOp := &operations.CreateCharge{
+        Amount:   int64(grandTotal * 100),
+        Currency: "thb",
+        Source:   qr.ID,
+    }
 
-	// ✅ สร้างคำสั่งซื้อ
-	order := models.Order{
-		UserID:      userObjID,
-		Items:       orderItems,
-		Total:       total,
-		ShippingFee: shippingFee,
-		GrandTotal:  grandTotal,
-		Status:      "waiting_payment",
-		SourceID:    qr.ID,
-		ChargeID:    charge.ID,
-		ShippingAddress: *selectedAddr,
-		CreatedAt:   time.Now(),
-		ExpiredAt:   time.Now().Add(1 * time.Minute),
-	}
+    var charge omise.Charge
+    if err := client.Do(&charge, chargeOp); err != nil {
+        log.Printf("❌ Create Charge failed: %v\n", err)
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Create charge failed: " + err.Error()})
+        return
+    }
+    log.Printf("✅ Created Omise charge ID = %s\n", charge.ID)
 
-	newOrder, err := models.CreateOrder(order)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Create order failed"})
-		return
-	}
+    // 12) สร้าง Order ใน MongoDB
+    order := models.Order{
+        UserID:          userObjID,
+        Items:           orderItems,
+        Total:           total,
+        ShippingFee:     shippingFee,
+        GrandTotal:      grandTotal,
+        Status:          "waiting_payment",
+        SourceID:        qr.ID,
+        ChargeID:        charge.ID,
+        ShippingAddress: *selectedAddr,
+        CreatedAt:       time.Now(),
+        ExpiredAt:       time.Now().Add(1 * time.Minute),
+    }
 
-	qrImage := qr.ScannableCode.Image.URI
-	if qrImage == "" {
-		qrImage = "https://cdn.omise.co/scannable_code/test_qr.png"
-	}
+    newOrder, err := models.CreateOrder(order)
+    if err != nil {
+        log.Printf("❌ CreateOrder DB failed: %v\n", err)
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Create order failed"})
+        return
+    }
+    log.Printf("✅ New order created: ID=%s\n", newOrder.ID.Hex())
 
-	// ✅ ส่ง response กลับ
-	c.JSON(http.StatusOK, gin.H{
-		"order_id":     newOrder.ID.Hex(),
-		"qr_image":     qrImage,
-		"source_id":    qr.ID,
-		"charge_id":    charge.ID,
-		"total":        total,
-		"shipping_fee": shippingFee,
-		"grand_total":  grandTotal,
-		"address_used": selectedAddr,
-	})
+    // 13) เตรียมค่า qrImage กลับไปให้ frontend
+    qrImage := qr.ScannableCode.Image.URI
+    if qrImage == "" {
+        qrImage = "https://cdn.omise.co/scannable_code/test_qr.png"
+    }
+
+    // 14) ส่ง response กลับ
+    c.JSON(http.StatusOK, gin.H{
+        "order_id":     newOrder.ID.Hex(),
+        "qr_image":     qrImage,
+        "source_id":    qr.ID,
+        "charge_id":    charge.ID,
+        "total":        total,
+        "shipping_fee": shippingFee,
+        "grand_total":  grandTotal,
+        "address_used": selectedAddr,
+    })
 }
+
 
 // ม็อคว่า “จ่ายแล้ว” (เฉพาะ test mode)
 func MarkPromptPayOrderPaid(c *gin.Context) {

@@ -82,6 +82,7 @@ func GetCart(c *gin.Context) {
 
     items, err := models.GetCartDetailsForUser(userObjID)
     if err != nil {
+        fmt.Println("❌ ERROR จาก GetCartDetailsForUser:", err)
         c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch cart items"})
         return
     }

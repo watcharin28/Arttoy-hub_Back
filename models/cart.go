@@ -51,6 +51,10 @@ func GetCartDetailsForUser(userID primitive.ObjectID) ([]CartItemWithProduct, er
 
 	// 3. ดึงรายละเอียดสินค้าทั้งหมด
 	var products []Product
+	if len(productIDs) == 0 {
+	fmt.Println("⚠️ ไม่มี productIDs ใน cart นี้เลย")
+	return []CartItemWithProduct{}, nil // คืน array ว่างแทน
+}
 	cursor2, err := db.OpenCollection("products").Find(ctx, bson.M{
 		"_id":     bson.M{"$in": productIDs},
 		"is_sold": false,
