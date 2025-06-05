@@ -5,8 +5,9 @@ import (
     "arttoy-hub/models"
     "github.com/gin-gonic/gin"
     "go.mongodb.org/mongo-driver/bson/primitive"
-	
+	"fmt"
     "net/http"
+    "time"
 	
 )
 
@@ -18,12 +19,21 @@ func AddToCart(c *gin.Context) {
     }
 
     if err := c.ShouldBindJSON(&input); err != nil {
+        fmt.Println("JSON binding error:", err)
         c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input"})
+        return
+    }
+
+    //  ป้องกัน quantity เป็น 0 หรือค่าติดลบ
+    if input.Quantity <= 0 {
+        fmt.Println("Invalid quantity:", input.Quantity)
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Quantity must be greater than 0"})
         return
     }
 
     userID := c.GetString("user_id")
     if userID == "" {
+        fmt.Println("Unauthorized: user_id not found")
         c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
         return
     }
@@ -31,21 +41,28 @@ func AddToCart(c *gin.Context) {
     userObjID, err := primitive.ObjectIDFromHex(userID)
     productObjID, err2 := primitive.ObjectIDFromHex(input.ProductID)
     if err != nil || err2 != nil {
+        fmt.Println("Invalid ObjectIDs:", err, err2)
         c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid IDs"})
         return
     }
 
     cartItem := models.CartItem{
+        ID:        primitive.NewObjectID(),
         UserID:    userObjID,
         ProductID: productObjID,
         Quantity:  input.Quantity,
+        AddedAt:   time.Now(),
     }
 
+    fmt.Printf("🛒 Attempting to insert cart item: %+v\n", cartItem)
+
     if err := models.AddToCart(cartItem); err != nil {
+        fmt.Println("Failed to insert cart item:", err)
         c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to add to cart"})
         return
     }
 
+    fmt.Println("✅ Cart item inserted successfully")
     c.JSON(http.StatusOK, gin.H{"message": "Added to cart"})
 }
 

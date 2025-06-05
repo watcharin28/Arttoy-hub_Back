@@ -7,6 +7,8 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"time"
+	"fmt"
+	"log"
 )
 
 type CartItemWithProduct struct {
@@ -28,7 +30,7 @@ type CartItem struct {
 }
 
 func GetCartDetailsForUser(userID primitive.ObjectID) ([]CartItemWithProduct, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
 	// 1. ดึง cart จาก user_id
@@ -57,6 +59,7 @@ func GetCartDetailsForUser(userID primitive.ObjectID) ([]CartItemWithProduct, er
 		return nil, err
 	}
 	if err := cursor2.All(ctx, &products); err != nil {
+		 log.Printf("❌ decode products error: %v\n", err)
 		return nil, err
 	}
 
@@ -77,10 +80,12 @@ func GetCartDetailsForUser(userID primitive.ObjectID) ([]CartItemWithProduct, er
 
 			// ดึงชื่อผู้ขาย
 			var seller User
+			sellerName := "Unknown" // Default fallback
 			err := db.OpenCollection("users").FindOne(ctx, bson.M{"_id": p.SellerID}).Decode(&seller)
-			sellerName := ""
 			if err == nil {
-				sellerName = seller.Username // หรือ seller.SellerInfo.FirstName + " " + LastName
+				sellerName = seller.Username
+			} else {
+				fmt.Println("❌ Error finding seller:", err) // Log ช่วย debug
 			}
 
 			result = append(result, CartItemWithProduct{
